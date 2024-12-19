@@ -52,6 +52,19 @@ def interpret_breathing_rate(breathing_rate):
         return "Unknown Status"
 
 def main():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow reuse of the port
+    server.bind(("192.168.50.175", 32345))
+    server.listen(1)
+
+    # Ensure proper cleanup on exit
+    signal.signal(signal.SIGINT, handle_exit(server))
+    signal.signal(signal.SIGTERM, handle_exit(server))
+    
+    print("Waiting for connection...")
+    conn, addr = server.accept()
+    print(f"Connected to {addr}")
+    
     args = a121.ExampleArgumentParser().parse_args()
     et.utils.config_logging(args)
 
@@ -100,7 +113,7 @@ def main():
     interrupt_handler = et.utils.ExampleInterruptHandler()
     print("Press Ctrl-C to end session")
 
-    conn = socket_server_thread()
+    #conn = socket_server_thread()
     try:
         while not interrupt_handler.got_signal:
             processed_data = ref_app.get_next()
