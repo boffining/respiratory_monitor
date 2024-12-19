@@ -1,4 +1,4 @@
-from acconeer.exptool.a121 import Client, get_client_args
+from acconeer.exptool.a121 import Client
 from acconeer.exptool.a121.algo.breathing import RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
@@ -6,14 +6,9 @@ from acconeer.exptool.a121.algo.breathing._ref_app import (
     get_sensor_config,
 )
 from acconeer.exptool.a121.algo.presence import ProcessorConfig as PresenceProcessorConfig
-from acconeer.exptool import ExampleArgumentParser, utils
 
 
 def main():
-    # Parse arguments for the client setup
-    args = ExampleArgumentParser().parse_args()
-    utils.config_logging(args)
-
     # Initialize configurations
     sensor = 1
     breathing_processor_config = BreathingProcessorConfig(
@@ -36,8 +31,8 @@ def main():
         presence_config=presence_config,
     )
 
-    # Open a connection to the radar and configure the session
-    client = Client.open(**get_client_args(args))
+    # Open a connection to the radar via SPI
+    client = Client(spi="/dev/spidev0.0")  # Update this if using a different SPI device
     client.setup_session(get_sensor_config(ref_app_config))
     ref_app = RefApp(client=client, sensor_id=sensor, ref_app_config=ref_app_config)
     ref_app.start()
