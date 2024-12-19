@@ -32,7 +32,7 @@ def main():
     )
 
     # Open a connection to the radar via SPI
-    client = Client.open(spi="/dev/spidev0.0")  # Update this if using a different SPI device
+    client = Client.open(ip_address="192.168.50.175")  # Update this if using a different SPI device
     client.setup_session(get_sensor_config(ref_app_config))
     ref_app = RefApp(client=client, sensor_id=sensor, ref_app_config=ref_app_config)
     ref_app.start()
