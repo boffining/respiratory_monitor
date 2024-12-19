@@ -22,8 +22,21 @@ def socket_server_thread():
     print("Waiting for connection from Android app...")
     conn, addr = server.accept()
     print(f"Connected to {addr}")
-
     return conn
+
+def interpret_breathing_rate(breathing_rate):
+    if breathing_rate is None:
+        return "No Data"
+    elif breathing_rate == 0:
+        return "No Presence Detected"
+    elif 6 <= breathing_rate <= 20:
+        return "Normal Breathing"
+    elif breathing_rate > 20:
+        return "Fast Breathing Detected"
+    elif breathing_rate < 6:
+        return "Slow Breathing Detected"
+    else:
+        return "Unknown Status"
 
 def main():
     args = a121.ExampleArgumentParser().parse_args()
@@ -82,7 +95,8 @@ def main():
             _breathing_rate = processed_data.breathing_result
             print("Breathing result " + str(_breathing_rate))
             if _breathing_rate:
-                conn.sendall(f"{_breathing_rate}\n".encode("utf-8"))
+                status_message = interpret_breathing_rate(_breathing_rate)
+                conn.sendall(f"{status_message}\n".encode("utf-8"))
         except et.PGProccessDiedException:
             break
 
