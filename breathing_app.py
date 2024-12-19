@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import socket
+import signal
+import sys
 from threading import Thread
 import acconeer.exptool as et
 from acconeer.exptool import a121
@@ -14,6 +16,17 @@ from acconeer.exptool.a121.algo.breathing._ref_app import (
     get_sensor_config,
 )
 from acconeer.exptool.a121.algo.presence import ProcessorConfig as PresenceProcessorConfig
+
+def cleanup_socket(server_socket):
+    server_socket.close()
+    print("Socket cleaned up and closed.")
+
+def handle_exit(server_socket):
+    def signal_handler(sig, frame):
+        print("Exiting...")
+        cleanup_socket(server_socket)
+        sys.exit(0)
+    return signal_handler
 
 def socket_server_thread():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -88,22 +101,26 @@ def main():
     print("Press Ctrl-C to end session")
 
     conn = socket_server_thread()
+    try:
+        while not interrupt_handler.got_signal:
+            processed_data = ref_app.get_next()
+            try:
+                _breathing_rate = processed_data.breathing_result
+                print("Breathing result " + str(_breathing_rate))
+                if _breathing_rate:
+                    status_message = interpret_breathing_rate(_breathing_rate)
+                    conn.sendall(f"{status_message}\n".encode("utf-8"))
+            except et.PGProccessDiedException:
+                break
     
-    while not interrupt_handler.got_signal:
-        processed_data = ref_app.get_next()
-        try:
-            _breathing_rate = processed_data.breathing_result
-            print("Breathing result " + str(_breathing_rate))
-            if _breathing_rate:
-                status_message = interpret_breathing_rate(_breathing_rate)
-                conn.sendall(f"{status_message}\n".encode("utf-8"))
-        except et.PGProccessDiedException:
-            break
-
-    ref_app.stop()
-    print("Disconnecting...")
-    client.close()
-    conn.close()
+    except KeyboardInterrupt:
+        print("Stopping...")
+    except Exception as e:
+        print(f"Server Error: {e}")
+    finally:
+        cleanup_socket(server)
+        ref_app.stop()
+        conn.close()
 
 
 if __name__ == "__main__":
