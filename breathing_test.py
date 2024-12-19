@@ -1,3 +1,4 @@
+from acconeer.exptool.a121 import Client, get_client_args
 from acconeer.exptool.a121.algo.breathing import RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
@@ -5,8 +6,14 @@ from acconeer.exptool.a121.algo.breathing._ref_app import (
     get_sensor_config,
 )
 from acconeer.exptool.a121.algo.presence import ProcessorConfig as PresenceProcessorConfig
+from acconeer.exptool import ExampleArgumentParser, utils
+
 
 def main():
+    # Parse arguments for the client setup
+    args = ExampleArgumentParser().parse_args()
+    utils.config_logging(args)
+
     # Initialize configurations
     sensor = 1
     breathing_processor_config = BreathingProcessorConfig(
@@ -29,8 +36,8 @@ def main():
         presence_config=presence_config,
     )
 
-    # Connect to the radar and start session
-    client = a121.Client.open()
+    # Open a connection to the radar and configure the session
+    client = Client.open(**get_client_args(args))
     client.setup_session(get_sensor_config(ref_app_config))
     ref_app = RefApp(client=client, sensor_id=sensor, ref_app_config=ref_app_config)
     ref_app.start()
@@ -46,11 +53,13 @@ def main():
         ref_app.stop()
         client.close()
 
+
 def process_breathing_result(result):
     if result.breathing_rate < 6 or result.breathing_rate > 60:
         print(f"Alert: Breathing anomaly detected! Rate: {result.breathing_rate}")
     else:
         print(f"Breathing rate: {result.breathing_rate} bpm")
+
 
 def process_presence_result(result):
     if result.presence_detected:
@@ -58,6 +67,6 @@ def process_presence_result(result):
     else:
         print("No presence detected")
 
+
 if __name__ == "__main__":
     main()
-
