@@ -119,9 +119,9 @@ def main():
             processed_data = ref_app.get_next()
             try:
                 _breathing_rate = processed_data.breathing_result
-                print("Breathing result " + str(_breathing_rate))
                 if _breathing_rate:
-                    status_message = interpret_breathing_rate(_breathing_rate)
+                    print("Breathing result " + str(_breathing_rate.breathing_rate))
+                    status_message = interpret_breathing_rate(_breathing_rate.breathing_rate)
                     conn.sendall(f"{status_message}\n".encode("utf-8"))
             except et.PGProccessDiedException:
                 break
