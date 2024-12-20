@@ -119,12 +119,12 @@ def main():
     #conn = socket_server_thread()
     try:
         while not interrupt_handler.got_signal:
-            processed_data = ref_app.get_next()
+            ref_app_result = ref_app.get_next()
             try:
-                _breathing_rate = processed_data.breathing_result
+                _breathing_rate = ref_app_result.breathing_result
                 if _breathing_rate:
                     # try:
-                    breathing_result = ref_app.breathing_result.extra_result
+                    breathing_result = ref_app_result.breathing_result.extra_result
                     _bpm_history = breathing_result.breathing_rate_history
                     displayed_breathing_rate = "{:.1f}".format(_bpm_history[-1])
                         # f.write("{:.1f}".format(_bpm_history[-1]) + '\n')
@@ -138,34 +138,34 @@ def main():
             except et.PGProccessDiedException:
                 break
             
-        app_state = ref_app.app_state
-        
-        # Presence text
-        if app_state == AppState.NO_PRESENCE_DETECTED:
-            status_message = "No presence detected"
-        elif app_state == AppState.DETERMINE_DISTANCE_ESTIMATE:
-            status_message = "Determining distance with presence"
-        elif app_state == AppState.ESTIMATE_BREATHING_RATE:
-            status_message = "Presence detected"
-        elif app_state == AppState.INTRA_PRESENCE_DETECTED:
-            status_message = "Motion detected"
-        else:
-            status_message = ""
+            app_state = ref_app.app_state
             
-        # Breathing text
-        if app_state == AppState.ESTIMATE_BREATHING_RATE:
-            if (
-                ref_app.breathing_result is not None
-                and ref_app.breathing_result.breathing_rate is None
-                ):
-                status_message = "Initializing breathing detection"
-            elif displayed_breathing_rate is not None:
-                status_message = "Breathing rate: " + displayed_breathing_rate + " bpm"
-        # else:
-            # breathing_text = "Waiting for distance"
-        
-        # Send the status message.
-        conn.sendall(f"{status_message}\n".encode("utf-8"))
+            # Presence text
+            if app_state == AppState.NO_PRESENCE_DETECTED:
+                status_message = "No presence detected"
+            elif app_state == AppState.DETERMINE_DISTANCE_ESTIMATE:
+                status_message = "Determining distance with presence"
+            elif app_state == AppState.ESTIMATE_BREATHING_RATE:
+                status_message = "Presence detected"
+            elif app_state == AppState.INTRA_PRESENCE_DETECTED:
+                status_message = "Motion detected"
+            else:
+                status_message = ""
+                
+            # Breathing text
+            if app_state == AppState.ESTIMATE_BREATHING_RATE:
+                if (
+                    ref_app_result.breathing_result is not None
+                    and ref_app_result.breathing_result.breathing_rate is None
+                    ):
+                    status_message = "Initializing breathing detection"
+                elif displayed_breathing_rate is not None:
+                    status_message = "Breathing rate: " + displayed_breathing_rate + " bpm"
+            # else:
+                # breathing_text = "Waiting for distance"
+            
+            # Send the status message.
+            conn.sendall(f"{status_message}\n".encode("utf-8"))
         
     
     except KeyboardInterrupt:
