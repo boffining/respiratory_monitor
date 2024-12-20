@@ -113,6 +113,9 @@ def main():
     interrupt_handler = et.utils.ExampleInterruptHandler()
     print("Press Ctrl-C to end session")
 
+    #breathing rate log files
+    f = open('breathing_log.txt','w')
+
     #conn = socket_server_thread()
     try:
         while not interrupt_handler.got_signal:
@@ -120,6 +123,7 @@ def main():
             try:
                 _breathing_rate = processed_data.breathing_result
                 if _breathing_rate:
+                    f.write(str(_breathing_rate.breathing_rate) + '\n')
                     print("Breathing result " + str(_breathing_rate.breathing_rate))
                     status_message = interpret_breathing_rate(_breathing_rate.breathing_rate)
                     conn.sendall(f"{status_message}\n".encode("utf-8"))
@@ -131,6 +135,7 @@ def main():
     except Exception as e:
         print(f"Server Error: {e}")
     finally:
+        f.close()
         cleanup_socket(server)
         ref_app.stop()
         conn.close()
