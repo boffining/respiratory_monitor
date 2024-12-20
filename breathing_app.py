@@ -122,6 +122,7 @@ def main():
     try:
         while not interrupt_handler.got_signal:
             ref_app_result = ref_app.get_next()
+            displayed_breathing_rate = None
             try:
                 _breathing_rate = ref_app_result.breathing_result
                 if _breathing_rate:
@@ -131,17 +132,15 @@ def main():
                     _filtered_bpm_history = [i for i in _bpm_history if not np.isnan(i)]
                     if len(_filtered_bpm_history) > 0:
                         displayed_breathing_rate = "{:.1f}".format(_filtered_bpm_history[-1])
-                    else:
-                        displayed_breathing_rate = None
                         # f.write("{:.1f}".format(_bpm_history[-1]) + '\n')
                     # except:
                         # continue
                     # print("Breathing result " + str(_breathing_rate.breathing_rate))
                     # status_message = interpret_breathing_rate(_breathing_rate.breathing_rate)
                     # conn.sendall(f"{status_message}\n".encode("utf-8"))
-                else:
-                    displayed_breathing_rate = None
+
             except et.PGProccessDiedException:
+                print("PGProcess Died.")
                 break
             
             app_state = ref_app_result.app_state
@@ -172,6 +171,7 @@ def main():
             
             # Send the status message.
             conn.sendall(f"{status_message}\n".encode("utf-8"))
+            prnt(status_message)
         
     
     except KeyboardInterrupt:
