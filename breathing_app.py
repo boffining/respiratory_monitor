@@ -138,7 +138,7 @@ def main():
             except et.PGProccessDiedException:
                 break
             
-            app_state = ref_app.app_state
+            app_state = ref_app_result.app_state
             
             # Presence text
             if app_state == AppState.NO_PRESENCE_DETECTED:
