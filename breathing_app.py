@@ -171,7 +171,7 @@ def main():
             
             # Send the status message.
             conn.sendall(f"{status_message}\n".encode("utf-8"))
-            prnt(status_message)
+            print(status_message)
         
     
     except KeyboardInterrupt:
