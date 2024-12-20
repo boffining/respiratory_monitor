@@ -9,7 +9,7 @@ import sys
 from threading import Thread
 import acconeer.exptool as et
 from acconeer.exptool import a121
-from acconeer.exptool.a121.algo.breathing import RefApp
+from acconeer.exptool.a121.algo.breathing import AppState, RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
     RefAppConfig,
@@ -113,9 +113,9 @@ def main():
     interrupt_handler = et.utils.ExampleInterruptHandler()
     print("Press Ctrl-C to end session")
 
-    #breathing rate log files
-    f = open('breathing_log.txt','w')
-
+    #breathing rate log file
+    # f = open('breathing_log.txt','w')
+    
     #conn = socket_server_thread()
     try:
         while not interrupt_handler.got_signal:
@@ -123,19 +123,57 @@ def main():
             try:
                 _breathing_rate = processed_data.breathing_result
                 if _breathing_rate:
-                    f.write(str(_breathing_rate.breathing_rate) + '\n')
-                    print("Breathing result " + str(_breathing_rate.breathing_rate))
-                    status_message = interpret_breathing_rate(_breathing_rate.breathing_rate)
-                    conn.sendall(f"{status_message}\n".encode("utf-8"))
+                    # try:
+                    breathing_result = ref_app.breathing_result.extra_result
+                    _bpm_history = breathing_result.breathing_rate_history
+                    displayed_breathing_rate = "{:.1f}".format(_bpm_history[-1])
+                        # f.write("{:.1f}".format(_bpm_history[-1]) + '\n')
+                    # except:
+                        # continue
+                    # print("Breathing result " + str(_breathing_rate.breathing_rate))
+                    # status_message = interpret_breathing_rate(_breathing_rate.breathing_rate)
+                    # conn.sendall(f"{status_message}\n".encode("utf-8"))
+                else:
+                    displayed_breathing_rate = None
             except et.PGProccessDiedException:
                 break
+            
+        app_state = ref_app.app_state
+        
+        # Presence text
+        if app_state == AppState.NO_PRESENCE_DETECTED:
+            status_message = "No presence detected"
+        elif app_state == AppState.DETERMINE_DISTANCE_ESTIMATE:
+            status_message = "Determining distance with presence"
+        elif app_state == AppState.ESTIMATE_BREATHING_RATE:
+            status_message = "Presence detected"
+        elif app_state == AppState.INTRA_PRESENCE_DETECTED:
+            status_message = "Motion detected"
+        else:
+            status_message = ""
+            
+        # Breathing text
+        if app_state == AppState.ESTIMATE_BREATHING_RATE:
+            if (
+                ref_app.breathing_result is not None
+                and ref_app.breathing_result.breathing_rate is None
+                ):
+                status_message = "Initializing breathing detection"
+            elif displayed_breathing_rate is not None:
+                status_message = "Breathing rate: " + displayed_breathing_rate + " bpm"
+        # else:
+            # breathing_text = "Waiting for distance"
+        
+        # Send the status message.
+        conn.sendall(f"{status_message}\n".encode("utf-8"))
+        
     
     except KeyboardInterrupt:
         print("Stopping...")
     except Exception as e:
         print(f"Server Error: {e}")
     finally:
-        f.close()
+        # f.close()
         cleanup_socket(server)
         ref_app.stop()
         conn.close()
