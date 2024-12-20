@@ -119,6 +119,7 @@ def main():
     # f = open('breathing_log.txt','w')
     
     #conn = socket_server_thread()
+    last_status = None
     try:
         while not interrupt_handler.got_signal:
             ref_app_result = ref_app.get_next()
@@ -151,14 +152,7 @@ def main():
             elif app_state == AppState.DETERMINE_DISTANCE_ESTIMATE:
                 status_message = "Determining distance with presence"
             elif app_state == AppState.ESTIMATE_BREATHING_RATE:
-                status_message = "Presence detected"
-            elif app_state == AppState.INTRA_PRESENCE_DETECTED:
-                status_message = "Motion detected"
-            else:
-                status_message = ""
-                
-            # Breathing text
-            if app_state == AppState.ESTIMATE_BREATHING_RATE:
+                # status_message = "Presence detected"
                 if (
                     ref_app_result.breathing_result is not None
                     and ref_app_result.breathing_result.breathing_rate is None
@@ -166,12 +160,28 @@ def main():
                     status_message = "Initializing breathing detection"
                 elif displayed_breathing_rate is not None:
                     status_message = "Breathing rate: " + displayed_breathing_rate + " bpm"
+            elif app_state == AppState.INTRA_PRESENCE_DETECTED:
+                status_message = "Motion detected"
+            else:
+                status_message = ""
+                
+            # Breathing text
+            # if app_state == AppState.ESTIMATE_BREATHING_RATE:
+            #     if (
+            #         ref_app_result.breathing_result is not None
+            #         and ref_app_result.breathing_result.breathing_rate is None
+            #         ):
+            #         status_message = "Initializing breathing detection"
+            #     elif displayed_breathing_rate is not None:
+            #         status_message = "Breathing rate: " + displayed_breathing_rate + " bpm"
             # else:
                 # breathing_text = "Waiting for distance"
             
             # Send the status message.
             conn.sendall(f"{status_message}\n".encode("utf-8"))
-            print(status_message)
+            if status_message != last_status:
+                last_status = status_message
+                print(status_message)
         
     
     except KeyboardInterrupt:
