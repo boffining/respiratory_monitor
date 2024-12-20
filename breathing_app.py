@@ -126,7 +126,11 @@ def main():
                     # try:
                     breathing_result = ref_app_result.breathing_result.extra_result
                     _bpm_history = breathing_result.breathing_rate_history
-                    displayed_breathing_rate = "{:.1f}".format(_bpm_history[-1])
+                    _filtered_bpm_history = [i for i in _bpm_history if not np.isnan(i)]
+                    if len(_filtered_bpm_history) > 0:
+                        displayed_breathing_rate = "{:.1f}".format(_filtered_bpm_history[-1])
+                    else:
+                        displayed_breathing_rate = None
                         # f.write("{:.1f}".format(_bpm_history[-1]) + '\n')
                     # except:
                         # continue
