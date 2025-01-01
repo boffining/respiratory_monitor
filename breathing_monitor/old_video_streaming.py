@@ -1,85 +1,76 @@
-# src/breathing_monitor/video_streaming.py
-
-import cv2
 import socket
 import struct
-import time
+from picamera2 import Picamera2
+import io
+import threading
 
-class VideoStreaming:
-    def __init__(self, host="192.168.50.175", port=9999, camera_index=0, width=1920, height=1080, fps=30):
+class TCPVideoServer:
+    def __init__(self, host="192.168.50.175", port=9999, resolution=(3280, 2464), framerate=30):
         self.host = host
         self.port = port
-        self.camera_index = camera_index
-        self.width = width
-        self.height = height
-        self.fps = fps
+        self.resolution = resolution
+        self.framerate = framerate
         self.server_socket = None
         self.camera = None
-        self.connection, self.client_address = None, None
+        self.is_running = True
 
-    def _setup_camera(self):
-        self.camera = cv2.VideoCapture(self.camera_index)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.camera.set(cv2.CAP_PROP_FPS, self.fps)
-        if not self.camera.isOpened():
-            raise RuntimeError("Failed to open camera")
+    def start_camera(self):
+        """Initialize and start the camera."""
+        self.camera = Picamera2()
+        video_config = self.camera.create_video_configuration(main={"size": self.resolution})
+        self.camera.configure(video_config)
+        self.camera.start()
 
-    def _setup_server(self):
+    def handle_client(self, client_socket):
+        """Handle the video streaming to a connected client."""
+        try:
+            print(f"Client connected: {client_socket.getpeername()}")
+            stream = io.BytesIO()
+            while self.is_running:
+                stream.seek(0)
+                self.camera.capture_file(stream, format="jpeg")
+                frame_data = stream.getvalue()
+                frame_size = len(frame_data)
+
+                # Send the frame size and the frame data
+                client_socket.sendall(struct.pack(">L", frame_size) + frame_data)
+        except (BrokenPipeError, ConnectionResetError):
+            print("Client disconnected.")
+        except Exception as e:
+            print(f"Error during streaming: {e}")
+        finally:
+            client_socket.close()
+            print("Connection closed.")
+
+    def start_server(self):
+        """Start the TCP server."""
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(1)
-        print(f"Video streaming server started on {self.host}:{self.port}")
+        print(f"Server started on {self.host}:{self.port}. Waiting for connections...")
 
-    def _accept_connection(self):
-        print("Waiting for a connection...")
-        self.connection, self.client_address = self.server_socket.accept()
-        print(f"Connection established with {self.client_address}")
+        self.start_camera()
 
-    def stream_video(self):
-        while True:
-            try:
-                self._setup_camera()
-                self._setup_server()
-                self._accept_connection()
+        try:
+            while self.is_running:
+                client_socket, _ = self.server_socket.accept()
+                threading.Thread(target=self.handle_client, args=(client_socket,), daemon=True).start()
+        except KeyboardInterrupt:
+            print("Server shutting down.")
+        finally:
+            self.stop()
 
-                while True:
-                    ret, frame = self.camera.read()
-                    if not ret:
-                        print("Failed to capture video frame")
-                        break
-
-                    # Encode frame to JPEG
-                    _, encoded_frame = cv2.imencode('.jpg', frame)
-                    data = encoded_frame.tobytes()
-
-                    # Send frame size and data over the network
-                    self.connection.sendall(struct.pack('>L', len(data)) + data)
-            except Exception as e:
-                print(f"Error during streaming: {e}")
-                self.cleanup()
-                print("Restarting video streaming service...")
-                time.sleep(5)  # Wait before restarting
-            finally:
-                self.cleanup()
-
-    def cleanup(self):
-        print("Cleaning up resources...")
-        if self.connection:
-            try:
-                self.connection.close()
-            except Exception as e:
-                print(f"Error closing connection: {e}")
+    def stop(self):
+        """Stop the server and clean up resources."""
+        self.is_running = False
         if self.camera:
-            self.camera.release()
+            self.camera.stop()
+            print("Camera stopped.")
         if self.server_socket:
-            try:
-                self.server_socket.close()
-            except Exception as e:
-                print(f"Error closing server socket: {e}")
-        print("Resources cleaned up.")
+            self.server_socket.close()
+            print("Server socket closed.")
 
 if __name__ == "__main__":
-    video_streamer = VideoStreaming()
-    video_streamer.stream_video()
+    video_server = TCPVideoServer( host="192.168.50.175", port=9999, resolution=(3280, 2464), framerate=30)
+    video_server.start_server()
