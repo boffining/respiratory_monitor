@@ -5,7 +5,7 @@ import io
 import threading
 
 class TCPVideoServer:
-    def __init__(self, host="192.168.50.175", port=9999, resolution=(1280, 720), framerate=60):
+    def __init__(self, host="192.168.50.175", port=9999, resolution=(720, 1280), framerate=60):
         self.host = host
         self.port = port
         self.resolution = resolution
@@ -75,5 +75,5 @@ class TCPVideoServer:
             print("Server socket closed.")
 
 if __name__ == "__main__":
-    video_server = TCPVideoServer(host="192.168.50.175", port=9999, resolution=(1280, 720), framerate=60)
+    video_server = TCPVideoServer(host="192.168.50.175", port=9999, resolution=(720, 1280), framerate=60)
     video_server.start_server()

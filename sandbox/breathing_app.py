@@ -39,14 +39,19 @@ def create_server_socket(host="192.168.50.175", port=32345):
             time.sleep(5)
 
 def wait_for_connection(server):
+    retry_count = 0
     while True:
         try:
-            print("Waiting for connection from Android app...")
+            if retry_count == 0:
+                print("Waiting for connection from Android app...")
             conn, addr = server.accept()
             print(f"Connected to {addr}")
             return conn
         except Exception as e:
-            print(f"Error accepting connection: {e}. Retrying...")
+            retry_count += 1
+            if retry_count % 10 == 0:  # Print status every 10 retries
+                print("Still waiting for a connection...")
+            time.sleep(1)
 
 def main():
     server = create_server_socket("192.168.50.175", 32345)
