@@ -1,30 +1,31 @@
-import cv2
 import socket
 import struct
 import traceback
+from picamera2 import Picamera2, MappedArray
+from picamera2.encoders import JpegEncoder
+from picamera2.outputs import FileOutput
+import io
 
 
 class VideoStreaming:
-    def __init__(self, host="192.168.50.175", port=9999, camera_index=0, width=1920, height=1080, fps=30):
+    def __init__(self, host="192.168.50.175", port=9999, width=640, height=480, fps=30):
         self.host = host
         self.port = port
-        self.camera_index = camera_index
         self.width = width
         self.height = height
         self.fps = fps
         self.server_socket = None
-        self.camera = None
         self.connection = None
+        self.camera = None
 
     def _setup_camera(self):
-        """Initialize the MIPI camera on Raspberry Pi."""
+        """Initialize the Raspberry Pi camera using picamera2."""
         print("Initializing the camera...")
-        self.camera = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.camera.set(cv2.CAP_PROP_FPS, self.fps)
-        if not self.camera.isOpened():
-            raise RuntimeError("Failed to open camera. Ensure it is connected and configured properly.")
+        self.camera = Picamera2()
+        video_config = self.camera.create_video_configuration(main={"size": (self.width, self.height)})
+        self.camera.configure(video_config)
+        print(f"Camera configured for resolution {self.width}x{self.height} at {self.fps} FPS.")
+        self.camera.start()
 
     def start_streaming(self):
         """Start the video streaming server."""
@@ -65,31 +66,28 @@ class VideoStreaming:
         """Stream video frames to the connected client."""
         try:
             print("Starting video stream...")
-            while True:
-                # Read a frame from the camera
-                ret, frame = self.camera.read()
-                if not ret:
-                    print("Failed to read frame from camera.")
-                    break
+            with io.BytesIO() as output_buffer:
+                while True:
+                    # Capture JPEG image directly to an in-memory buffer
+                    self.camera.capture_file(output_buffer, format="jpeg")
+                    data = output_buffer.getvalue()
+                    size = len(data)
 
-                # Encode frame to JPEG
-                _, buffer = cv2.imencode('.jpg', frame)
-                data = buffer.tobytes()
-                size = len(data)
+                    # Debug: Print the size of the frame being sent
+                    print(f"Frame size: {size} bytes")
 
-                # Debug: Print the size of the frame being sent
-                print(f"Frame size: {size} bytes")
-
-                # Send frame size and data to the client
-                try:
-                    self.connection.sendall(struct.pack(">L", size) + data)
-                except BrokenPipeError as e:
-                    print(f"Client disconnected: {e}")
-                    break
-                except Exception as e:
-                    print(f"Error during sendall: {e}")
-                    traceback.print_exc()
-                    break
+                    # Send frame size and data to the client
+                    try:
+                        self.connection.sendall(struct.pack(">L", size) + data)
+                        output_buffer.seek(0)
+                        output_buffer.truncate()
+                    except BrokenPipeError as e:
+                        print(f"Client disconnected: {e}")
+                        break
+                    except Exception as e:
+                        print(f"Error during sendall: {e}")
+                        traceback.print_exc()
+                        break
         except Exception as e:
             print(f"Error in _stream_video: {e}")
             traceback.print_exc()
@@ -108,10 +106,10 @@ class VideoStreaming:
                 print(f"Error closing connection: {e}")
         if self.camera:
             try:
-                self.camera.release()
-                print("Camera released.")
+                self.camera.stop()
+                print("Camera stopped.")
             except Exception as e:
-                print(f"Error releasing camera: {e}")
+                print(f"Error stopping camera: {e}")
         if self.server_socket:
             try:
                 self.server_socket.close()
@@ -122,5 +120,6 @@ class VideoStreaming:
 
 
 if __name__ == "__main__":
-    video_streamer = VideoStreaming(host="192.168.50.175", port=9999)
+    # Use the same IP as the breathing data script (e.g., 192.168.50.175)
+    video_streamer = VideoStreaming(host="192.168.50.175", port=9999, width=640, height=480, fps=30)
     video_streamer.start_streaming()
