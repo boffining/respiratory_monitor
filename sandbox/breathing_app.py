@@ -5,6 +5,7 @@ import time
 from threading import Thread
 import numpy as np
 import acconeer.exptool as et
+from acconeer.exptool import a121
 from acconeer.exptool.a121.algo.breathing import AppState, RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
