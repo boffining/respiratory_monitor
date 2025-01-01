@@ -5,6 +5,7 @@ import time
 from threading import Thread
 import numpy as np
 import acconeer.exptool as et
+from acconeer.exptool import a121
 from acconeer.exptool.a121.algo.breathing import AppState, RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
@@ -55,7 +56,7 @@ def main():
     while True:
         conn = wait_for_connection(server)
         try:
-            args = et.ExampleArgumentParser().parse_args()
+            args = a121.ExampleArgumentParser().parse_args()
             et.utils.config_logging(args)
 
             # Setup the configurations
