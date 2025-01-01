@@ -22,10 +22,10 @@ class ReliableVideoServer:
             main={"size": self.resolution},
             controls={
                 "FrameRate": self.framerate,
-                "NoiseReductionMode": 0,
-                "Brightness": 0.5,
-                "Contrast": 1.0,
-                "Saturation": 1.0
+                #"NoiseReductionMode": 0,
+                #"Brightness": 0.5,
+                #"Contrast": 1.0,
+                #"Saturation": 1.0
             }
         )
         self.camera.configure(video_config)
