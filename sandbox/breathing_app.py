@@ -147,6 +147,10 @@ def main():
 
             except (KeyboardInterrupt, ConnectionResetError):
                 print("Connection lost. Waiting for reconnection...")
+                cleanup_socket(server)
+                ref_app.stop()
+                conn.close()
+                continue
             except Exception as e:
                 print(f"Server Error: {e}")
             finally:
@@ -161,6 +165,8 @@ def main():
 
         except Exception as e:
             print(f"Error in session: {e}. Restarting...")
+            cleanup_socket(server)
+            continue
 
 if __name__ == "__main__":
     main()
