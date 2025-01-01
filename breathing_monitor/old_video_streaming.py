@@ -19,7 +19,7 @@ class TCPVideoServer:
         self.camera = Picamera2()
         video_config = self.camera.create_video_configuration(
             main={"size": self.resolution},
-            controls={"FrameRate": self.framerate, "NoiseReductionMode": 0}
+            controls={"FrameRate": self.framerate}
         )
         self.camera.configure(video_config)
         self.camera.start()
@@ -31,7 +31,8 @@ class TCPVideoServer:
             stream = io.BytesIO()
             while self.is_running:
                 stream.seek(0)
-                self.camera.capture_file(stream, format="jpeg", quality=85)  # Lower quality for faster encoding
+                # Capture a JPEG frame
+                self.camera.capture_file(stream, format="jpeg")
                 frame_data = stream.getvalue()
                 frame_size = len(frame_data)
 
@@ -74,6 +75,5 @@ class TCPVideoServer:
             print("Server socket closed.")
 
 if __name__ == "__main__":
-    # Host IP is now statically set to 192.168.50.175
     video_server = TCPVideoServer(host="192.168.50.175", port=9999, resolution=(1280, 720), framerate=60)
     video_server.start_server()
