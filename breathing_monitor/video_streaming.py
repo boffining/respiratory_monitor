@@ -4,15 +4,14 @@ import threading
 import io
 from picamera2 import Picamera2
 
-class ReliableVideoServer:
-    def __init__(self, host="192.168.50.175", port=9999, resolution=(1920, 1080), framerate=30):
+class BalancedVideoServer:
+    def __init__(self, host="192.168.50.175", port=9999, resolution=(1280, 720), framerate=60):
         self.host = host
         self.port = port
         self.resolution = resolution
         self.framerate = framerate
         self.camera = None
         self.is_running = True
-        self.lock = threading.Lock()
 
     def start_camera(self):
         """Initialize and start the camera."""
@@ -20,13 +19,7 @@ class ReliableVideoServer:
         self.camera = Picamera2()
         video_config = self.camera.create_video_configuration(
             main={"size": self.resolution},
-            controls={
-                "FrameRate": self.framerate,
-                #"NoiseReductionMode": 0,
-                #"Brightness": 0.5,
-                #"Contrast": 1.0,
-                #"Saturation": 1.0
-            }
+            controls={"FrameRate": self.framerate}
         )
         self.camera.configure(video_config)
         self.camera.start()
@@ -44,16 +37,13 @@ class ReliableVideoServer:
                 frame_size = len(frame_data)
 
                 # Send frame size and the frame data
-                with self.lock:
-                    client_socket.sendall(struct.pack(">L", frame_size) + frame_data)
+                client_socket.sendall(struct.pack(">L", frame_size) + frame_data)
         except (BrokenPipeError, ConnectionResetError):
             print("Client disconnected.")
         except Exception as e:
             print(f"Error during streaming: {e}")
         finally:
-            with self.lock:
-                client_socket.close()
-                print("Connection closed. Waiting for new connection...")
+            client_socket.close()
 
     def start_server(self):
         """Start the video streaming server."""
@@ -82,7 +72,7 @@ class ReliableVideoServer:
             print("Camera stopped.")
 
 if __name__ == "__main__":
-    server = ReliableVideoServer(host="192.168.50.175", port=9999, resolution=(1920, 1080), framerate=30)
+    server = BalancedVideoServer(host="192.168.50.175", port=9999, resolution=(1280, 720), framerate=60)
     threading.Thread(target=server.start_server, daemon=True).start()
 
     try:

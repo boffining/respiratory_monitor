@@ -24,7 +24,7 @@ def handle_exit(server_socket):
         sys.exit(0)
     return signal_handler
 
-def create_server_socket(host="192.168.50.175", port=12345):
+def create_server_socket(host="192.168.50.175", port=32345):
     while True:
         try:
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -48,7 +48,7 @@ def wait_for_connection(server):
             print(f"Error accepting connection: {e}. Retrying...")
 
 def main():
-    server = create_server_socket("192.168.50.175", 12345)
+    server = create_server_socket("192.168.50.175", 32345)
     signal.signal(signal.SIGINT, handle_exit(server))
     signal.signal(signal.SIGTERM, handle_exit(server))
 
