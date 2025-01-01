@@ -1,61 +1,93 @@
-import cv2
 import socket
 import struct
 import threading
+import io
+from picamera2 import Picamera2
 
-class VideoStreaming:
-    def __init__(self, host="0.0.0.0", port=9999, camera_index=0, width=1920, height=1080, fps=30):
+class ReliableVideoServer:
+    def __init__(self, host="192.168.50.175", port=9999, resolution=(1920, 1080), framerate=30):
         self.host = host
         self.port = port
-        self.camera_index = camera_index
-        self.width = width
-        self.height = height
-        self.fps = fps
-        self.server_socket = None
+        self.resolution = resolution
+        self.framerate = framerate
         self.camera = None
-        self.connection = None
+        self.is_running = True
+        self.lock = threading.Lock()
 
-    def _setup_camera(self):
-        self.camera = cv2.VideoCapture(self.camera_index)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.camera.set(cv2.CAP_PROP_FPS, self.fps)
-        if not self.camera.isOpened():
-            raise RuntimeError("Failed to open camera")
+    def start_camera(self):
+        """Initialize and start the camera."""
+        print("Initializing the camera...")
+        self.camera = Picamera2()
+        video_config = self.camera.create_video_configuration(
+            main={"size": self.resolution},
+            controls={
+                "FrameRate": self.framerate,
+                "NoiseReductionMode": 0,
+                "Brightness": 0.5,
+                "Contrast": 1.0,
+                "Saturation": 1.0
+            }
+        )
+        self.camera.configure(video_config)
+        self.camera.start()
+        print(f"Camera started with resolution {self.resolution} at {self.framerate} FPS.")
 
-    def start_streaming(self):
-        self._setup_camera()
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(1)
-        print(f"Streaming server started on {self.host}:{self.port}")
-
-        while True:
-            print("Waiting for a connection...")
-            self.connection, client_address = self.server_socket.accept()
-            print(f"Connection from {client_address}")
-            threading.Thread(target=self._stream_video).start()
-
-    def _stream_video(self):
+    def handle_client(self, client_socket):
+        """Stream video frames to the connected client."""
         try:
-            while True:
-                ret, frame = self.camera.read()
-                if not ret:
-                    break
+            print(f"Client connected: {client_socket.getpeername()}")
+            stream = io.BytesIO()
+            while self.is_running:
+                stream.seek(0)
+                self.camera.capture_file(stream, format="jpeg")
+                frame_data = stream.getvalue()
+                frame_size = len(frame_data)
 
-                _, buffer = cv2.imencode('.jpg', frame)
-                data = buffer.tobytes()
-                size = len(data)
-                self.connection.sendall(struct.pack(">L", size) + data)
+                # Send frame size and the frame data
+                with self.lock:
+                    client_socket.sendall(struct.pack(">L", frame_size) + frame_data)
+        except (BrokenPipeError, ConnectionResetError):
+            print("Client disconnected.")
         except Exception as e:
             print(f"Error during streaming: {e}")
         finally:
-            self.cleanup()
+            with self.lock:
+                client_socket.close()
+                print("Connection closed. Waiting for new connection...")
 
-    def cleanup(self):
-        if self.connection:
-            self.connection.close()
+    def start_server(self):
+        """Start the video streaming server."""
+        video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        video_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        video_socket.bind((self.host, self.port))
+        video_socket.listen(1)
+        print(f"Video server started on {self.host}:{self.port}. Waiting for connections...")
+
+        self.start_camera()
+
+        while self.is_running:
+            try:
+                client_socket, _ = video_socket.accept()
+                threading.Thread(target=self.handle_client, args=(client_socket,), daemon=True).start()
+            except Exception as e:
+                print(f"Error accepting connection: {e}")
+        video_socket.close()
+
+    def stop(self):
+        """Stop the server and clean up resources."""
+        self.is_running = False
         if self.camera:
-            self.camera.release()
-        print("Cleaned up resources.")
+            self.camera.stop()
+            print("Camera stopped.")
+
+if __name__ == "__main__":
+    server = ReliableVideoServer(host="192.168.50.175", port=9999, resolution=(1920, 1080), framerate=30)
+    threading.Thread(target=server.start_server, daemon=True).start()
+
+    try:
+        while True:
+            pass  # Keep the main thread running
+    except KeyboardInterrupt:
+        print("Shutting down server...")
+        server.stop()
