@@ -6,12 +6,12 @@ import traceback
 
 class VideoStreaming:
     def __init__(self, host="192.168.50.175", port=9999, camera_index=0, width=1920, height=1080, fps=30):
-        self.host = host  # Server IP address
-        self.port = port  # Port for video streaming
-        self.camera_index = camera_index  # Camera index for MIPI camera
-        self.width = width  # Video resolution width
-        self.height = height  # Video resolution height
-        self.fps = fps  # Frames per second
+        self.host = host
+        self.port = port
+        self.camera_index = camera_index
+        self.width = width
+        self.height = height
+        self.fps = fps
         self.server_socket = None
         self.camera = None
         self.connection = None
@@ -48,10 +48,11 @@ class VideoStreaming:
                 except Exception as e:
                     print(f"Error accepting connection: {e}")
                     traceback.print_exc()
-                    # Close connection if partially established
+                finally:
                     if self.connection:
                         try:
                             self.connection.close()
+                            print("Connection closed.")
                         except Exception as close_err:
                             print(f"Error closing connection: {close_err}")
         except Exception as e:
@@ -63,23 +64,37 @@ class VideoStreaming:
     def _stream_video(self):
         """Stream video frames to the connected client."""
         try:
+            print("Starting video stream...")
             while True:
+                # Read a frame from the camera
                 ret, frame = self.camera.read()
                 if not ret:
                     print("Failed to read frame from camera.")
                     break
 
-                # Encode frame as JPEG
+                # Encode frame to JPEG
                 _, buffer = cv2.imencode('.jpg', frame)
                 data = buffer.tobytes()
                 size = len(data)
 
-                # Send frame size and data
-                self.connection.sendall(struct.pack(">L", size) + data)
+                # Debug: Print the size of the frame being sent
+                print(f"Frame size: {size} bytes")
+
+                # Send frame size and data to the client
+                try:
+                    self.connection.sendall(struct.pack(">L", size) + data)
+                except BrokenPipeError as e:
+                    print(f"Client disconnected: {e}")
+                    break
+                except Exception as e:
+                    print(f"Error during sendall: {e}")
+                    traceback.print_exc()
+                    break
         except Exception as e:
-            print(f"Error during streaming: {e}")
+            print(f"Error in _stream_video: {e}")
             traceback.print_exc()
         finally:
+            print("Exiting _stream_video.")
             self.cleanup()
 
     def cleanup(self):
@@ -107,6 +122,5 @@ class VideoStreaming:
 
 
 if __name__ == "__main__":
-    # Use the same IP as the breathing data script (e.g., 192.168.50.175)
     video_streamer = VideoStreaming(host="192.168.50.175", port=9999)
     video_streamer.start_streaming()
