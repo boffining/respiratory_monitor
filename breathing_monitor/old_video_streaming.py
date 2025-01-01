@@ -6,7 +6,7 @@ import struct
 import time
 
 class VideoStreaming:
-    def __init__(self, host="0.0.0.0", port=9999, camera_index=0, width=1920, height=1080, fps=30):
+    def __init__(self, host="192.168.50.175", port=9999, camera_index=0, width=1920, height=1080, fps=30):
         self.host = host
         self.port = port
         self.camera_index = camera_index
