@@ -15,8 +15,11 @@ from acconeer.exptool.a121.algo.breathing._ref_app import (
 from acconeer.exptool.a121.algo.presence import ProcessorConfig as PresenceProcessorConfig
 
 def cleanup_socket(server_socket):
-    server_socket.close()
-    print("Socket cleaned up and closed.")
+    try:
+        server_socket.close()
+        print("Socket cleaned up and closed.")
+    except Exception as e:
+        print(f"Error cleaning up socket: {e}")
 
 def handle_exit(server_socket):
     def signal_handler(sig, frame):
@@ -42,8 +45,7 @@ def wait_for_connection(server):
     retry_count = 0
     while True:
         try:
-            if retry_count == 0:
-                print("Waiting for connection from Android app...")
+            print("Waiting for connection from Android app...")
             conn, addr = server.accept()
             print(f"Connected to {addr}")
             return conn
@@ -143,18 +145,22 @@ def main():
                         last_status = status_message
                         print(status_message)
 
-            except KeyboardInterrupt:
-                print("Stopping...")
+            except (KeyboardInterrupt, ConnectionResetError):
+                print("Connection lost. Waiting for reconnection...")
             except Exception as e:
                 print(f"Server Error: {e}")
             finally:
-                cleanup_socket(server)
-                ref_app.stop()
-                conn.close()
+                try:
+                    ref_app.stop()
+                except Exception as e:
+                    print(f"Error stopping RefApp: {e}")
+                try:
+                    conn.close()
+                except Exception as e:
+                    print(f"Error closing connection: {e}")
 
         except Exception as e:
             print(f"Error in session: {e}. Restarting...")
-            conn.close()
 
 if __name__ == "__main__":
     main()
