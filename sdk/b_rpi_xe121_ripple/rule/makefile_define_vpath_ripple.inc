@@ -1,2 +1,0 @@
-VPATH += \
-	source/examples/ripple \
