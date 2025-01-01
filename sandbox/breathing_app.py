@@ -60,6 +60,7 @@ def main():
 
     while True:
         conn = wait_for_connection(server)
+        ref_app = None
         try:
             args = ExampleArgumentParser().parse_args()
             et.utils.config_logging(args)
@@ -145,10 +146,12 @@ def main():
 
             except (KeyboardInterrupt, ConnectionResetError):
                 print("Connection lost. Cleaning up and waiting for reconnection...")
-                try:
-                    ref_app.stop()
-                except Exception as e:
-                    print(f"Error stopping RefApp: {e}")
+                if ref_app is not None:
+                    try:
+                        ref_app.stop()
+                        print("RefApp stopped successfully.")
+                    except Exception as e:
+                        print(f"Error stopping RefApp: {e}")
                 try:
                     conn.close()
                 except Exception as e:
@@ -157,10 +160,11 @@ def main():
             except Exception as e:
                 print(f"Server Error: {e}")
             finally:
-                try:
-                    ref_app.stop()
-                except Exception as e:
-                    print(f"Error stopping RefApp: {e}")
+                if ref_app is not None:
+                    try:
+                        ref_app.stop()
+                    except Exception as e:
+                        print(f"Error stopping RefApp: {e}")
                 try:
                     conn.close()
                 except Exception as e:
