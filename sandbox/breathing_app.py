@@ -5,7 +5,6 @@ import time
 from threading import Thread
 import numpy as np
 import acconeer.exptool as et
-from acconeer.exptool import a121
 from acconeer.exptool.a121.algo.breathing import AppState, RefApp
 from acconeer.exptool.a121.algo.breathing._ref_app import (
     BreathingProcessorConfig,
@@ -13,6 +12,7 @@ from acconeer.exptool.a121.algo.breathing._ref_app import (
     get_sensor_config,
 )
 from acconeer.exptool.a121.algo.presence import ProcessorConfig as PresenceProcessorConfig
+from acconeer.exptool.a121 import ExampleArgumentParser
 
 def cleanup_socket(server_socket):
     try:
@@ -42,7 +42,6 @@ def create_server_socket(host="192.168.50.175", port=32345):
             time.sleep(5)
 
 def wait_for_connection(server):
-    retry_count = 0
     while True:
         try:
             print("Waiting for connection from Android app...")
@@ -50,9 +49,7 @@ def wait_for_connection(server):
             print(f"Connected to {addr}")
             return conn
         except Exception as e:
-            retry_count += 1
-            if retry_count % 10 == 0:  # Print status every 10 retries
-                print("Still waiting for a connection...")
+            print(f"Error accepting connection: {e}. Retrying...")
             time.sleep(1)
 
 def main():
@@ -63,7 +60,7 @@ def main():
     while True:
         conn = wait_for_connection(server)
         try:
-            args = a121.ExampleArgumentParser().parse_args()
+            args = ExampleArgumentParser().parse_args()
             et.utils.config_logging(args)
 
             # Setup the configurations
@@ -146,10 +143,15 @@ def main():
                         print(status_message)
 
             except (KeyboardInterrupt, ConnectionResetError):
-                print("Connection lost. Waiting for reconnection...")
-                cleanup_socket(server)
-                ref_app.stop()
-                conn.close()
+                print("Connection lost. Cleaning up and waiting for reconnection...")
+                try:
+                    ref_app.stop()
+                except Exception as e:
+                    print(f"Error stopping RefApp: {e}")
+                try:
+                    conn.close()
+                except Exception as e:
+                    print(f"Error closing connection: {e}")
                 continue
             except Exception as e:
                 print(f"Server Error: {e}")
@@ -165,8 +167,6 @@ def main():
 
         except Exception as e:
             print(f"Error in session: {e}. Restarting...")
-            cleanup_socket(server)
-            continue
 
 if __name__ == "__main__":
     main()
