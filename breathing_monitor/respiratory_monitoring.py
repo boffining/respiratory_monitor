@@ -13,7 +13,7 @@ import socket
 import threading
 
 class RespiratoryMonitoring:
-    def __init__(self, host="0.0.0.0", port=32345, range_start=0.2, range_end=0.5, update_rate=10, push_notification_url=None):
+    def __init__(self, host="192.168.50.175", port=32345, range_start=0.2, range_end=0.5, update_rate=10, push_notification_url=None):
         self.host = host
         self.port = port
         self.range_start = range_start
@@ -127,13 +127,21 @@ class RespiratoryMonitoring:
                 savgol_filtered = self._apply_savgol_filter(kalman_filtered)
                 cleaned_waveform = self._apply_fft_denoising(savgol_filtered)
 
-                self.visualize_waveform(raw_waveform, cleaned_waveform)
-
                 motion_state = "Child in motion" if np.std(cleaned_waveform) > 0.05 else "Stable breathing waveform"
-                alert = "Child not moving" if np.max(np.abs(cleaned_waveform)) < 0.02 else None
+                alert = "Child not moving" if np.max(np.abs(cleaned_waveform)) < 0.02 else "Normal"
+
+                # Send status first
+                status_message = f"{motion_state}|{alert}".encode('utf-8')
+                self.client_socket.send(struct.pack('!I', len(status_message)))
+                self.client_socket.send(status_message)
+
+                # Then send waveform data
+                self.client_socket.send(struct.pack('!I', len(cleaned_waveform)))
+                for value in cleaned_waveform:
+                    self.client_socket.send(struct.pack('!f', float(value)))
 
                 self.logger.info(f"Motion State: {motion_state}")
-                if alert:
+                if alert != "Normal":
                     self.logger.warning(f"ALERT: {alert}")
                     self._send_push_notification(alert)
 
