@@ -29,8 +29,7 @@
             android:padding="16dp"
             android:text="Breathing Status"
             android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:padding="8dp" />
+            android:textSize="18sp" />
 
         <com.github.mikephil.charting.charts.LineChart
             android:id="@+id/breathingChart"
