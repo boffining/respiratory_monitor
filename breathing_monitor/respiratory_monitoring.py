@@ -1,6 +1,7 @@
 # src/breathing_monitor/respiratory_monitoring.py
 
-import acconeer.exptool as et
+import acconeer.exptool.clients.json.client as acc
+import acconeer.exptool.configs.configs as configs
 import numpy as np
 from scipy.signal import butter, lfilter, savgol_filter
 from scipy.fft import fft, ifft
@@ -44,14 +45,14 @@ class RespiratoryMonitoring:
             threading.Thread(target=self.get_breathing_data, daemon=True).start()
 
     def _setup_client(self):
-        self.client = et.SocketClient(self.host)
-        config = et.configs.SparseServiceConfig()
+        self.logger.info("Setting up Acconeer client...")
+        client = acc.Client("192.168.50.175")  # Replace with your radar IP
+        config = configs.IQServiceConfig()
         config.range_interval = [self.range_start, self.range_end]
-        config.sampling_mode = et.configs.SparseServiceConfig.SAMPLING_MODE_A
         config.update_rate = self.update_rate
-        self.client.setup_session(config)
+        config.gain = 0.5
+        self.client = client.setup_session(config)
         self.client.start_session()
-        self.logger.info("Respiratory Monitoring Session Started.")
 
     def _create_filter(self, filter_type, cutoff, fs, order=5):
         nyquist = 0.5 * fs
