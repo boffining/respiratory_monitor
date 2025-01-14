@@ -9,10 +9,13 @@ import matplotlib.pyplot as plt
 import logging
 import requests
 import time
+import socket
+import threading
 
 class RespiratoryMonitoring:
-    def __init__(self, host="127.0.0.1", range_start=0.2, range_end=0.5, update_rate=10, push_notification_url=None):
+    def __init__(self, host="0.0.0.0", port=32345, range_start=0.2, range_end=0.5, update_rate=10, push_notification_url=None):
         self.host = host
+        self.port = port
         self.range_start = range_start
         self.range_end = range_end
         self.update_rate = update_rate
@@ -20,11 +23,25 @@ class RespiratoryMonitoring:
 
         self.client = None
         self.logger = None
+        self.server_socket = None
+        self.conn = None
         self._setup_logger()
 
     def _setup_logger(self):
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger("RespiratoryMonitoring")
+
+    def start_server(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(1)
+        self.logger.info(f"Server started on {self.host}:{self.port}. Waiting for connections...")
+
+        while True:
+            self.conn, addr = self.server_socket.accept()
+            self.logger.info(f"Connected to {addr}")
+            threading.Thread(target=self.get_breathing_data, daemon=True).start()
 
     def _setup_client(self):
         self.client = et.SocketClient(self.host)
@@ -123,7 +140,7 @@ class RespiratoryMonitoring:
             except Exception as e:
                 self.logger.error(f"Error during breathing monitoring: {e}")
                 self.cleanup()
-                self.logger.info("Restarting breathing monitoring service...")
+                self.logger.info("Waiting for device to reconnect...")
                 time.sleep(5)
 
     def cleanup(self):
@@ -134,8 +151,13 @@ class RespiratoryMonitoring:
             except Exception as e:
                 self.logger.error(f"Error stopping client session: {e}")
         self.client = None
-        self.logger.info("Resources cleaned up.")
+        if self.conn:
+            try:
+                self.conn.close()
+            except Exception as e:
+                self.logger.error(f"Error closing connection: {e}")
+        self.conn = None
 
 if __name__ == "__main__":
     monitoring_service = RespiratoryMonitoring(push_notification_url="http://example.com/notify")
-    monitoring_service.get_breathing_data()
+    monitoring_service.start_server()
