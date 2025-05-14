@@ -1,41 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#000000">
 
     <!-- Video Stream -->
     <ImageView
         android:id="@+id/videoView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="match_parent"
         android:scaleType="fitCenter"
-        android:layout_alignParentTop="true"
-        android:layout_above="@+id/breathingStatusContainer" />
+        android:layout_alignParentTop="true" />
 
-    <!-- Breathing Data -->
+    <!-- Breathing Waveform Overlay -->
     <LinearLayout
         android:id="@+id/breathingStatusContainer"
         android:orientation="vertical"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:padding="16dp"
+        android:padding="8dp"
         android:background="#80000000">
 
+        <!-- Connection Status -->
         <TextView
             android:id="@+id/breathingRateTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="16dp"
-            android:text="Breathing Status"
+            android:padding="4dp"
+            android:text="Connecting..."
             android:textColor="#FFFFFF"
-            android:textSize="18sp" />
+            android:textSize="14sp" />
 
+        <!-- Breathing Status -->
+        <TextView
+            android:id="@+id/breathingStatusTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="4dp"
+            android:text="Waiting for breathing data..."
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <!-- Breathing Waveform Chart -->
         <com.github.mikephil.charting.charts.LineChart
             android:id="@+id/breathingChart"
             android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:layout_weight="1"/>
+            android:layout_height="180dp"
+            android:layout_marginTop="4dp" />
     </LinearLayout>
-</RelativeLayout>
 
+    <!-- FPS Counter (Debug) -->
+    <TextView
+        android:id="@+id/fpsCounterTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:padding="8dp"
+        android:text=""
+        android:textColor="#FFFF00"
+        android:textSize="12sp"
+        android:visibility="gone" />
+</RelativeLayout>

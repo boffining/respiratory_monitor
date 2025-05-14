@@ -1,7 +1,7 @@
 # src/breathing_monitor/respiratory_monitoring.py
 
-import acconeer.exptool.clients.json.client as acc
-import acconeer.exptool.configs.configs as configs
+from acconeer.exptool import clients
+from acconeer.exptool import configs
 import numpy as np
 from scipy.signal import butter, lfilter, savgol_filter
 from scipy.fft import fft, ifft
@@ -46,7 +46,7 @@ class RespiratoryMonitoring:
 
     def _setup_client(self):
         self.logger.info("Setting up Acconeer client...")
-        client = acc.Client("192.168.50.175")  # Replace with your radar IP
+        client = clients.SocketClient(host="192.168.50.175")
         config = configs.IQServiceConfig()
         config.range_interval = [self.range_start, self.range_end]
         config.update_rate = self.update_rate
