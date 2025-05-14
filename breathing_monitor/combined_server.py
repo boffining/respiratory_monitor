@@ -13,19 +13,42 @@ from scipy.signal import butter, lfilter, savgol_filter
 from scipy.fft import fft, ifft
 from pykalman import KalmanFilter
 
+# Suppress PyQt5 warning
+os.environ["PYQTGRAPH_QT_LIB"] = "PySide6"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("CombinedServer")
+
 # Check which Acconeer SDK is available
 A121_AVAILABLE = importlib.util.find_spec("acconeer.a121") is not None
 A111_AVAILABLE = importlib.util.find_spec("acconeer.exptool") is not None
 
 if A121_AVAILABLE:
     import acconeer.a121 as a121
-    logging.info("Using Acconeer A121 SDK")
+    logger.info("Using Acconeer A121 SDK")
 elif A111_AVAILABLE:
-    import acconeer.exptool.clients.json.client as acc
-    import acconeer.exptool.configs.configs as configs
-    logging.info("Using Acconeer A111 SDK (exptool)")
+    try:
+        # For newer versions of acconeer-exptool (v3+)
+        import acconeer.exptool as et
+        from acconeer.exptool import configs
+        from acconeer.exptool.clients import SocketClient
+        acc = SocketClient
+        logger.info("Using newer Acconeer A111 SDK structure (exptool v3+)")
+    except ImportError:
+        try:
+            # For older versions of acconeer-exptool
+            import acconeer.exptool.clients.json.client as acc
+            import acconeer.exptool.configs.configs as configs
+            logger.info("Using older Acconeer A111 SDK structure (exptool v2)")
+        except ImportError:
+            logger.error("Failed to import Acconeer SDK modules. Please check your installation.")
+            logger.error("Try: pip install acconeer-exptool==3.4.7")
 else:
-    logging.warning("No Acconeer SDK found. Radar functionality will not be available.")
+    logger.warning("No Acconeer SDK found. Radar functionality will not be available.")
 
 class CombinedServer:
     def __init__(self, 

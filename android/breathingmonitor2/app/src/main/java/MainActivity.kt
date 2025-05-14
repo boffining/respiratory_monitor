@@ -27,7 +27,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var breathingStatusTextView: TextView
     private lateinit var breathingChart: LineChart
     private val entries = ArrayList<Entry>()
-    private val maxDataPoints = 200
+    private val maxDataPoints = 200f  // Changed to float to avoid type mismatch
     private var lastFrameTime = 0L
     private var frameCount = 0
     private var fps = 0f
@@ -266,7 +266,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 // Add new values and remove old ones to maintain max size
                 for (value in values) {
-                    if (entries.size >= maxDataPoints) {
+                    if (entries.size >= maxDataPoints.toInt()) {
                         entries.removeAt(0)
                     }
                     entries.add(Entry(entries.size.toFloat(), value))
@@ -279,7 +279,7 @@ class MainActivity : AppCompatActivity() {
             
             breathingChart.data.notifyDataChanged()
             breathingChart.notifyDataSetChanged()
-            breathingChart.setVisibleXRange(0f, maxDataPoints.toFloat())
+            breathingChart.setVisibleXRange(0f, maxDataPoints)
             breathingChart.moveViewToX(entries.size.toFloat())
             breathingChart.invalidate()
         }

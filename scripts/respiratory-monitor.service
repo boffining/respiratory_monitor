@@ -1,0 +1,16 @@
+[Unit]
+Description=Respiratory Monitor Combined Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/respiratory_monitor
+ExecStart=/home/pi/respiratory_monitor/scripts/run.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
