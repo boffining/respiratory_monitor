@@ -6,12 +6,26 @@ import io
 import numpy as np
 import logging
 import json
+import importlib.util
+import os
 from picamera2 import Picamera2
-import acconeer.exptool.clients.json.client as acc
-import acconeer.exptool.configs.configs as configs
 from scipy.signal import butter, lfilter, savgol_filter
 from scipy.fft import fft, ifft
 from pykalman import KalmanFilter
+
+# Check which Acconeer SDK is available
+A121_AVAILABLE = importlib.util.find_spec("acconeer.a121") is not None
+A111_AVAILABLE = importlib.util.find_spec("acconeer.exptool") is not None
+
+if A121_AVAILABLE:
+    import acconeer.a121 as a121
+    logging.info("Using Acconeer A121 SDK")
+elif A111_AVAILABLE:
+    import acconeer.exptool.clients.json.client as acc
+    import acconeer.exptool.configs.configs as configs
+    logging.info("Using Acconeer A111 SDK (exptool)")
+else:
+    logging.warning("No Acconeer SDK found. Radar functionality will not be available.")
 
 class CombinedServer:
     def __init__(self, 
@@ -76,15 +90,63 @@ class CombinedServer:
     def _setup_radar_client(self):
         self.logger.info("Setting up Acconeer radar client...")
         try:
-            client = acc.Client("192.168.50.175")  # Replace with your radar IP if different
-            config = configs.IQServiceConfig()
-            config.range_interval = [self.range_start, self.range_end]
-            config.update_rate = self.update_rate
-            config.gain = 0.5
-            self.radar_client = client.setup_session(config)
-            self.radar_client.start_session()
+            if A121_AVAILABLE:
+                # A121 SDK setup
+                self.logger.info("Using A121 radar SDK")
+                
+                # Create client
+                client = a121.Client(ip_address="192.168.50.175")  # Replace with your radar IP if different
+                client.connect()
+                
+                # Create sensor config for breathing monitoring
+                sensor_config = a121.SensorConfig(
+                    start_point=int(self.range_start * 100),  # Convert to distance in cm
+                    num_points=100,  # Number of depth points
+                    step_length=1,   # Step length between points
+                    profile=a121.Profile.PROFILE_3,  # High sensitivity profile
+                    hwaas=32,        # Hardware averages
+                    sweeps_per_frame=64,  # Sweeps per frame
+                    frame_rate=self.update_rate,  # Frame rate in Hz
+                )
+                
+                # Create session config
+                session_config = a121.SessionConfig(
+                    [sensor_config],  # List of sensor configs
+                    extended=False,   # Extended session
+                )
+                
+                # Setup and start session
+                self.radar_client = {
+                    "client": client,
+                    "session_config": session_config,
+                    "sensor_config": sensor_config,
+                }
+                client.setup_session(session_config)
+                client.start_session()
+                
+            elif A111_AVAILABLE:
+                # A111 SDK setup (exptool)
+                self.logger.info("Using A111 radar SDK (exptool)")
+                
+                client = acc.Client("192.168.50.175")  # Replace with your radar IP if different
+                config = configs.IQServiceConfig()
+                config.range_interval = [self.range_start, self.range_end]
+                config.update_rate = self.update_rate
+                config.gain = 0.5
+                
+                self.radar_client = {
+                    "client": client,
+                    "session": client.setup_session(config),
+                }
+                self.radar_client["session"].start_session()
+                
+            else:
+                self.logger.error("No Acconeer SDK found. Cannot setup radar client.")
+                return False
+                
             self.logger.info("Radar client started successfully.")
             return True
+            
         except Exception as e:
             self.logger.error(f"Failed to setup radar client: {e}")
             return False
@@ -122,9 +184,30 @@ class CombinedServer:
         
         try:
             while self.is_running:
-                # Get data from radar
-                info, sweep = self.radar_client.get_next()
-                raw_waveform = np.array(sweep)
+                # Get data from radar based on which SDK is available
+                if A121_AVAILABLE:
+                    # Get data from A121 radar
+                    result = self.radar_client["client"].get_next()
+                    
+                    # Process A121 data
+                    frame = result.frame
+                    
+                    # Extract the data - A121 returns a complex array
+                    # We'll use the phase information for breathing detection
+                    raw_waveform = np.angle(frame.flatten())
+                    
+                elif A111_AVAILABLE:
+                    # Get data from A111 radar
+                    info, sweep = self.radar_client["session"].get_next()
+                    raw_waveform = np.array(sweep)
+                    
+                else:
+                    # No radar SDK available, generate dummy data for testing
+                    self.logger.warning("No radar SDK available, generating dummy data")
+                    t = time.time()
+                    # Generate a sine wave with some noise to simulate breathing
+                    raw_waveform = np.sin(2 * np.pi * 0.3 * t + np.arange(100) * 0.01) + 0.1 * np.random.randn(100)
+                    time.sleep(1 / self.update_rate)
                 
                 # Process the waveform
                 high_pass_filter = self._create_filter('high', 0.5, self.update_rate)
@@ -163,7 +246,11 @@ class CombinedServer:
         finally:
             if self.radar_client:
                 try:
-                    self.radar_client.stop_session()
+                    if A121_AVAILABLE:
+                        self.radar_client["client"].stop_session()
+                        self.radar_client["client"].disconnect()
+                    elif A111_AVAILABLE:
+                        self.radar_client["session"].stop_session()
                 except Exception as e:
                     self.logger.error(f"Error stopping radar client: {e}")
     

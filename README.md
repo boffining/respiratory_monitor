@@ -15,8 +15,17 @@ A high-performance respiratory monitoring system using Raspberry Pi and Acconeer
 ### Raspberry Pi
 - Raspberry Pi 4 (recommended) or Raspberry Pi 3B+
 - Picamera2 module
-- Acconeer radar sensor (XE121 or compatible)
+- Acconeer radar sensor:
+  - A121 radar (preferred for better performance)
+  - A111/XE121 radar (also supported)
 - Stable network connection
+
+### Acconeer SDK Requirements
+The system automatically detects and uses the appropriate Acconeer SDK:
+- For A121 radar: Acconeer Python SDK (acconeer.a121)
+- For A111 radar: Acconeer Exploration Tool (acconeer.exptool)
+
+The installation script will set up both SDKs, and the system will automatically use the appropriate one based on the connected hardware.
 
 ### Android Device
 - Android 7.0 or higher
@@ -82,7 +91,14 @@ A high-performance respiratory monitoring system using Raspberry Pi and Acconeer
 
 ### Breathing Waveform Issues
 - Check the radar sensor connection
+- Verify that the Acconeer SDK is properly installed:
+  - For A121 radar: `pip install acconeer-python-sdk`
+  - For A111 radar: Follow the setup instructions in the Acconeer Exploration Tool repository
+- Check if the Acconeer server is running (for A111 radar only):
+  - Run `ps aux | grep acconeer` to see if the server process is running
+  - If not, start it manually: `$ACCONEER_SERVER_PATH`
 - Adjust the `range_start` and `range_end` parameters in `combined_server.py` to match your setup
+- For A121 radar issues, check the Acconeer A121 SDK documentation for troubleshooting tips
 
 ## Advanced Configuration
 

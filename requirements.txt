@@ -4,4 +4,13 @@ scipy==1.7.3
 matplotlib==3.5.0
 requests==2.26.0
 pykalman==0.9.5
-acconeer-exptool==3.4.7  # Replace with the actual version used for your radar module
+
+# Acconeer radar SDKs - install at least one based on your radar hardware
+acconeer-exptool==3.4.7  # For A111 radar series
+acconeer-python-sdk>=3.0.0  # For A121 radar series
+
+# Additional dependencies
+picamera2  # For Raspberry Pi camera
+libcamera  # Required by picamera2
+importlib_metadata  # For SDK detection
+packaging  # For version handling

@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
                         breathingRateTextView.text = statusText
                     }
                 }
-                fps = frameCount
+                fps = frameCount.toFloat()
                 frameCount = 0
             }
         }
