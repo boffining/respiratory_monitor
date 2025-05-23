@@ -261,8 +261,8 @@ def main():
 
         # --- Setup FileOutput to pipe to GStreamer ---
         # Create a pipe. GStreamer will read from read_fd, Picamera2 writes to write_fd.
-        read_fd, write_fd = os.pipe()
-        logger.info(f"Created pipe: read_fd={read_fd}, write_fd={write_fd}")
+        read_fd, write_fd_int = os.pipe() # write_fd_int is an integer
+        logger.info(f"Created pipe: read_fd={read_fd}, write_fd_int={write_fd_int}")
 
         write_file_obj = os.fdopen(write_fd_int, 'wb')
         logger.info(f"Wrapped write_fd_int into file object: {write_file_obj}")
