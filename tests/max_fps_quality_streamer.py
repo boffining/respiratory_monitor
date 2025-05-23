@@ -6,6 +6,7 @@ import signal
 import sys
 import os
 from picamera2 import Picamera2
+import threading
 
 # --- Configuration ---
 # Temporarily hardcode for testing encoder limits.
