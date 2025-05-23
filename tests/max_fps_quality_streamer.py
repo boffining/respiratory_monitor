@@ -98,7 +98,14 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps, picam2_format_str
     ])
     logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline_elements)}")
     try:
-        gst_process = subprocess.Popen(pipeline_elements, pass_fds=(input_fd_gst,))
+        # Capture stderr for debugging
+        gst_process = subprocess.Popen(
+            pipeline_elements, 
+            pass_fds=(input_fd_gst,),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
         logger.info(f"GStreamer process started with PID: {gst_process.pid}")
     except Exception as e:
         logger.error(f"Failed to start GStreamer: {e}"); gst_process = None
@@ -169,13 +176,14 @@ def main():
         logger.info("Initializing Picamera2...")
         picam2_instance = Picamera2()
         selected_mode_info, requested_fps = select_optimal_camera_mode(picam2_instance)
-        if not selected_mode_info: logger.error("Could not determine optimal camera mode. Exiting."); return
+        if not selected_mode_info: 
+            logger.error("Could not determine optimal camera mode. Exiting.")
+            return
 
         main_stream_config = {"size": selected_mode_info["size"], "format": selected_capture_format_from_config}
         controls_for_picam2 = {"FrameRate": float(requested_fps)} if requested_fps else {}
         video_config = picam2_instance.create_video_configuration(
-            main=main_stream_config, controls=controls_for_picam2, #raw=selected_mode_info,
-            queue=True)#, buffer_count=6)
+            main=main_stream_config, controls=controls_for_picam2, queue=True)
         logger.info(f"Requesting Picamera2 configuration: {video_config}")
         picam2_instance.configure(video_config)
 
@@ -188,16 +196,15 @@ def main():
         actual_frame_buffer_size = actual_main_stream_config.get('framesize')
         actual_stride = actual_main_stream_config.get('stride')
 
+        logger.info(f"Picamera2 actual config: width={final_width}, height={final_height}, format={final_format_from_picam2}, stride={actual_stride}, framesize={actual_frame_buffer_size}, fps={actual_fps}")
+
         if not actual_frame_buffer_size or not actual_stride:
             logger.error(f"CRITICAL: 'framesize' ({actual_frame_buffer_size}) or 'stride' ({actual_stride}) is missing from Picamera2 config for format {final_format_from_picam2}. Cannot reliably configure GStreamer. Exiting.")
             return
         
-        logger.info(f"Picamera2 configured. Stream: {final_width}x{final_height} Fmt: {final_format_from_picam2} FPS: ~{actual_fps}. BufSize: {actual_frame_buffer_size}, Stride: {actual_stride} bytes.")
-        logger.info(f"Picamera2 format: {final_format_from_picam2}, stride: {actual_stride}, framesize: {actual_frame_buffer_size}")
-
         fd_for_gst_read, write_fd_int = os.pipe()
-        python_read_fd = fd_for_gst_read # Store FD globally for signal handler, will be set to -1 after GStreamer launch
-        python_write_file_obj = os.fdopen(write_fd_int, 'wb') # Store globally
+        python_read_fd = fd_for_gst_read
+        python_write_file_obj = os.fdopen(write_fd_int, 'wb')
         logger.info(f"Created pipe: GStreamer reads fd {fd_for_gst_read}, Python writes to wrapped fd {write_fd_int}")
 
         gst_process = start_gstreamer_pipeline(
@@ -205,32 +212,58 @@ def main():
             final_format_from_picam2, actual_frame_buffer_size, actual_stride
         )
 
+        # Print GStreamer stderr in a separate thread for live debugging
+        def gst_stderr_printer(proc):
+            for line in proc.stderr:
+                print(f"[GStreamer STDERR] {line}", end="")
+        if gst_process and gst_process.stderr:
+            import threading
+            threading.Thread(target=gst_stderr_printer, args=(gst_process,), daemon=True).start()
+
         if gst_process and gst_process.poll() is None:
             logger.info(f"GStreamer process launched. Closing parent's copy of fd {fd_for_gst_read}")
-            os.close(fd_for_gst_read); python_read_fd = -1 # Mark as closed by parent
+            os.close(fd_for_gst_read); python_read_fd = -1
         else:
             if python_read_fd != -1: os.close(python_read_fd); python_read_fd = -1
             if python_write_file_obj and not python_write_file_obj.closed: python_write_file_obj.close()
+            logger.error("GStreamer process failed to launch or exited immediately.")
+            if gst_process and gst_process.stderr:
+                logger.error("GStreamer stderr output:")
+                for line in gst_process.stderr:
+                    print(line, end="")
             raise RuntimeError("GStreamer process failed to launch or exited immediately.")
 
-        logger.info("Starting Picamera2 capture loop..."); picam2_instance.start()
+        logger.info("Starting Picamera2 capture loop...")
+        picam2_instance.start()
         logger.info(f"🚀 Streaming active! Target: udp://{GST_TARGET_HOST}:{GST_TARGET_PORT}"); print("Press Ctrl+C to stop.")
         frame_count = 0
         while capture_running_flag:
             buffer_data = picam2_instance.capture_buffer("main")
-            if buffer_data is None: logger.warning("capture_buffer None, stopping."); capture_running_flag = False; break
+            if buffer_data is None: 
+                logger.warning("capture_buffer None, stopping."); capture_running_flag = False; break
             if len(buffer_data) != actual_frame_buffer_size:
                 logger.error(f"CRITICAL: Buffer size mismatch frame {frame_count}! Picamera2 config said {actual_frame_buffer_size}, capture_buffer returned {len(buffer_data)}. Stopping.")
                 capture_running_flag = False; break
             try:
-                python_write_file_obj.write(buffer_data); python_write_file_obj.flush(); frame_count += 1
-            except BrokenPipeError: logger.warning(f"Broken pipe frame {frame_count}. GStreamer exited?"); capture_running_flag = False; break
-            except Exception as e: logger.error(f"Error writing pipe frame {frame_count}: {e}"); capture_running_flag = False; break
-            if frame_count > 0 and frame_count % (int(actual_fps or 30) * 5) == 0: logger.info(f"Streamed {frame_count} frames...")
-            if gst_process.poll() is not None: logger.error(f"GStreamer exited frame {frame_count} code {gst_process.returncode}."); capture_running_flag = False; break
+                python_write_file_obj.write(buffer_data)
+                python_write_file_obj.flush()
+                frame_count += 1
+            except BrokenPipeError: 
+                logger.warning(f"Broken pipe frame {frame_count}. GStreamer exited?"); capture_running_flag = False; break
+            except Exception as e: 
+                logger.error(f"Error writing pipe frame {frame_count}: {e}"); capture_running_flag = False; break
+            if frame_count > 0 and frame_count % (int(actual_fps or 30) * 5) == 0: 
+                logger.info(f"Streamed {frame_count} frames...")
+            if gst_process.poll() is not None: 
+                logger.error(f"GStreamer exited frame {frame_count} code {gst_process.returncode}."); capture_running_flag = False; break
         logger.info(f"Exited capture loop after {frame_count} frames.")
+
     except Exception as e:
         logger.critical(f"Critical error in main: {e}", exc_info=True)
+        if gst_process and gst_process.stderr:
+            logger.error("GStreamer stderr output (on exception):")
+            for line in gst_process.stderr:
+                print(line, end="")
     finally:
         logger.info("Performing final cleanup in main()...")
         capture_running_flag = False # Ensure any other loops stop
