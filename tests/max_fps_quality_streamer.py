@@ -264,19 +264,41 @@ def main():
         read_fd, write_fd = os.pipe()
         logger.info(f"Created pipe: read_fd={read_fd}, write_fd={write_fd}")
 
+        write_file_obj = os.fdopen(write_fd_int, 'wb')
+        logger.info(f"Wrapped write_fd_int into file object: {write_file_obj}")
+
+        # Picamera2 will write to this Python file object.
+        fd_output = FileOutput(write_file_obj)
+        
+        
         # Picamera2 will write to the write end of the pipe.
         # FileOutput needs the FD number.
-        fd_output = FileOutput(write_fd)
+        # fd_output = FileOutput(write_fd)
 
+        # # Start GStreamer first, ready to read from read_fd
+        # gst_process = start_gstreamer_pipeline(read_fd, final_width, final_height, actual_fps_from_controls, final_format)
+        # if not gst_process or gst_process.poll() is not None: # Check if GStreamer started
+        #     raise RuntimeError("GStreamer process failed to start or exited prematurely.")
+
+        # # Start Picamera2 recording to the FileOutput (which writes to the pipe)
+        # # No encoder is specified here for Picamera2, as we want raw frames for GStreamer.
+        # logger.info("Starting Picamera2 recording to pipe...")
+        # picam2.start_recording(None, fd_output) # No Picamera2 encoder, raw frames to fd_output
+        
+        
         # Start GStreamer first, ready to read from read_fd
         gst_process = start_gstreamer_pipeline(read_fd, final_width, final_height, actual_fps_from_controls, final_format)
         if not gst_process or gst_process.poll() is not None: # Check if GStreamer started
+            # If GStreamer fails, close the write_file_obj as Picamera2 won't use it.
+            write_file_obj.close() # Important: close the Python file obj which also closes write_fd_int
+            # read_fd will be closed by the signal handler eventually or if GStreamer took it
             raise RuntimeError("GStreamer process failed to start or exited prematurely.")
 
-        # Start Picamera2 recording to the FileOutput (which writes to the pipe)
-        # No encoder is specified here for Picamera2, as we want raw frames for GStreamer.
+        # Start Picamera2 recording to the FileOutput (which now uses write_file_obj)
         logger.info("Starting Picamera2 recording to pipe...")
         picam2.start_recording(None, fd_output) # No Picamera2 encoder, raw frames to fd_output
+
+
 
         logger.info(f"🚀 Streaming active! Target: udp://{GST_TARGET_HOST}:{GST_TARGET_PORT}")
         logger.info("Press Ctrl+C to stop.")
