@@ -6,8 +6,7 @@ import signal
 import sys
 import os
 from picamera2 import Picamera2
-import threading
-import socket
+import threading # Ensure threading is imported at the top
 
 # --- Configuration ---
 TEST_RESOLUTION_WIDTH = 1920
@@ -18,7 +17,7 @@ GST_ENCODER = "v4l2h264enc"
 GST_BITRATE_KBPS = 6000
 GST_TARGET_HOST = "192.168.50.183"  # <<< REPLACE THIS!
 GST_TARGET_PORT = 5004
-REQUESTED_PICAM2_FORMAT = "YUV420" # Crucial for this test
+REQUESTED_PICAM2_FORMAT = "YUV420"
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -36,81 +35,65 @@ python_write_file_obj = None
 picam2_instance = None
 
 def select_optimal_camera_mode(picam2_select):
-    # This function is currently bypassed by hardcoded TEST_RESOLUTION/FPS in main()
-    # For actual dynamic selection, it would need to be re-enabled and potentially made
-    # aware of encoder limitations. For now, we focus on making the hardcoded mode work.
+    # This function is effectively bypassed by hardcoded settings in main for this test
     sensor_modes = picam2_select.sensor_modes
-    if not sensor_modes:
-        logger.error("No sensor modes found!"); return None, None
-    # Simplified: just find a mode that can provide the TEST_RESOLUTION
-    # This is a placeholder if not hardcoding in main
+    if not sensor_modes: logger.error("No sensor modes found!"); return None, None
+    logger.debug("Available sensor modes (showing size, format, bit_depth):")
+    for i, mode_info in enumerate(sensor_modes):
+        logger.debug(f"  Mode {i}: {mode_info.get('size')}, Fmt: {mode_info.get('format', 'N/A')}, Depth: {mode_info.get('bit_depth')}")
+    # Fallback logic (currently unused due to main() hardcoding)
     for mode_info in sensor_modes:
         if mode_info.get('size') == (TEST_RESOLUTION_WIDTH, TEST_RESOLUTION_HEIGHT):
             logger.info(f"Found sensor mode matching test resolution: {mode_info.get('size')}")
-            return mode_info, TEST_FPS
+            return mode_info, TEST_FPS # Return the mode_info dict and target FPS
     logger.warning(f"Could not find exact sensor mode for {TEST_RESOLUTION_WIDTH}x{TEST_RESOLUTION_HEIGHT}. Will let Picamera2 attempt to configure.")
-    # Return a dummy mode_info that just contains the size, Picamera2 will use it.
     return {"size": (TEST_RESOLUTION_WIDTH, TEST_RESOLUTION_HEIGHT)}, TEST_FPS
 
 
 def start_gstreamer_pipeline(input_fd_gst, width, height, fps, 
                              picam2_actual_format_str, 
-                             actual_frame_buffer_size, actual_stride_from_picam2):
+                             actual_frame_buffer_size, actual_stride_from_picam2): # actual_stride_from_picam2 is now informational
     global gst_process
-    gst_source_format_from_picam2 = 'UNKNOWN' # Renamed for clarity
-    if picam2_actual_format_str == 'YUV420': gst_source_format_from_picam2 = 'I420'
-    elif picam2_actual_format_str == 'BGR888': gst_source_format_from_picam2 = 'BGR'
-    elif picam2_actual_format_str == 'RGB888': gst_source_format_from_picam2 = 'RGB'
-    elif picam2_actual_format_str == 'XRGB8888': gst_source_format_from_picam2 = 'XRGB'
-    else: 
-        logger.error(f"Unsupported Picamera2 format '{picam2_actual_format_str}' for GStreamer. Cannot proceed.")
-        return None
+    gst_source_format = 'BGR' 
+    if picam2_actual_format_str == 'YUV420': gst_source_format = 'I420'
+    elif picam2_actual_format_str == 'BGR888': gst_source_format = 'BGR'
+    elif picam2_actual_format_str == 'RGB888': gst_source_format = 'RGB'
+    elif picam2_actual_format_str == 'XRGB8888': gst_source_format = 'XRGB'
+    else: logger.warning(f"Unsupported Picamera2 format '{picam2_actual_format_str}' for GStreamer caps. Defaulting to BGR.")
 
     framerate_str_gst = f"{int(fps)}/1" if fps and fps > 0 else "30/1"
     target_bitrate_bps_gst = GST_BITRATE_KBPS * 1000
 
-    # Base caps from fdsrc - MUST accurately describe the data Picamera2 outputs
+    # --- MODIFICATION: Remove stride from caps_from_fdsrc_gst ---
+    # Let downstream elements (like videoconvert) assume tightly packed based on width/height
+    # if stride is not specified, or use stride if it were correctly available and consistent.
+    # Given the previous mismatch, removing stride is safer here.
+    # fdsrc's blocksize is set to the actual buffer size from Picamera2.
+    # The caps now describe the logical video within that block, assuming standard packing (stride=width).
     caps_from_fdsrc_gst = (
-        f"video/x-raw,format={gst_source_format_from_picam2},width={width},height={height},"
-        f"framerate={framerate_str_gst},stride={actual_stride_from_picam2},"
+        f"video/x-raw,format={gst_source_format},width={width},height={height},"
+        f"framerate={framerate_str_gst},"
         f"pixel-aspect-ratio=1/1,interlace-mode=progressive"
+        # Stride removed: f"stride={actual_stride_from_picam2}," 
     )
+    logger.info(f"Using fdsrc output caps (stride removed, will be inferred as width by videoconvert): {caps_from_fdsrc_gst}")
     
-    # Caps for H.264 after encoding
-    caps_after_encoder_gst = "video/x-h264" 
+    caps_for_encoder_input_gst = f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str_gst}"
+    caps_after_encoder_gst = "video/x-h264"
 
     pipeline_elements = [
         "gst-launch-1.0", "-v",
         "fdsrc", f"fd={input_fd_gst}", f"blocksize={actual_frame_buffer_size}", "num-buffers=-1",
-        "!", "queue", # Queue immediately after fdsrc
-        "!", caps_from_fdsrc_gst
+        "!", "queue", 
+        "!", caps_from_fdsrc_gst, # Stride is no longer specified here
+        "!", "videoconvert",
+        "!", "queue", 
+        "!", caps_for_encoder_input_gst,
+        "!", GST_ENCODER
     ]
 
-    # --- MODIFICATION: Conditional videoconvert ---
-    # If Picamera2 output is I420 and v4l2h264enc can take I420, try direct connection.
-    # Otherwise, use videoconvert to NV12 (common preferred format for v4l2h264enc).
-    # You should check `gst-inspect-1.0 v4l2h264enc` sink caps.
-    # For this test, we assume YUV420 (I420) from Picamera2 and will try direct first.
-    # If other formats like BGR888 are used, videoconvert is essential.
-    
-    if gst_source_format_from_picam2 == 'I420':
-        logger.info("Picamera2 output is I420. Attempting to connect directly to v4l2h264enc.")
-        # (No videoconvert, no NV12 capsfilter before encoder)
-    else:
-        # For other formats (e.g., BGR, RGB), videoconvert to NV12 is necessary
-        logger.info(f"Picamera2 output is {gst_source_format_from_picam2}. Using videoconvert to NV12.")
-        caps_for_encoder_input_gst = f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str_gst}"
-        pipeline_elements.extend([
-            "!", "videoconvert",
-            "!", "queue", 
-            "!", caps_for_encoder_input_gst
-        ])
-
-    pipeline_elements.append("!")
-    pipeline_elements.append(GST_ENCODER)
-
     if GST_ENCODER == "v4l2h264enc":
-        h264_level_for_encoder = 11 # Level 4.1 for 1080p30
+        h264_level_for_encoder = 11 
         if TEST_FPS >= 50: h264_level_for_encoder = 12
         extra_controls = (
             f'extra-controls="controls,'
@@ -126,23 +109,20 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps,
         "!", "rtph264pay", "pt=96", "mtu=1400", "config-interval=1",
         "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false"
     ])
-
+    # (Detailed parameter logging and GST_DEBUG setup from previous version should be kept)
     logger.debug("--- GStreamer Launch Parameters ---")
-    # (Same detailed logging of parameters as before)
     logger.debug(f"  Input FD for GStreamer: {input_fd_gst}")
     logger.debug(f"  Resolution: {width}x{height}")
     logger.debug(f"  FPS: {fps} (GStreamer framerate: {framerate_str_gst})")
-    logger.debug(f"  Picamera2 Format (GStreamer equivalent): {gst_source_format_from_picam2}")
+    logger.debug(f"  Picamera2 Format (GStreamer equivalent): {gst_source_format}")
     logger.debug(f"  Actual Frame Buffer Size (blocksize for fdsrc): {actual_frame_buffer_size}")
-    logger.debug(f"  Stride from Picamera2 (for fdsrc caps): {actual_stride_from_picam2}")
+    logger.debug(f"  Stride from Picamera2 (informational, not used in fdsrc caps): {actual_stride_from_picam2}")
     logger.debug(f"  Full GStreamer pipeline string to be launched:\n{' '.join(pipeline_elements)}")
     logger.debug("------------------------------------")
     
     gst_env = os.environ.copy()
-    gst_env["GST_DEBUG"] = ("3,fdsrc:3,basesrc:3,GST_CAPS:3,negotiation:3,GST_PIPELINE:3," # Increased verbosity
-                           "videoconvert:3,v4l2h264enc:3,h264parse:3,queue:3,default:3")
-    # dot_dir = "/tmp/gst_dot_files_streamer"; os.makedirs(dot_dir, exist_ok=True)
-    # gst_env["GST_DEBUG_DUMP_DOT_DIR"] = dot_dir
+    gst_env["GST_DEBUG"] = ("3,fdsrc:5,basesrc:5,GST_CAPS:5,negotiation:5,GST_PIPELINE:4,"
+                           "videoconvert:4,v4l2h264enc:4,h264parse:4,queue:4,default:2")
     logger.debug(f"GST_DEBUG set to: {gst_env['GST_DEBUG']}")
 
     try:
@@ -180,7 +160,6 @@ def signal_handler_main(sig, frame):
         except OSError as e: logger.error(f"SignalH: Error closing read_fd {python_read_fd}: {e}")
     logger.info("SignalH: Cleanup attempt finished. Exiting."); sys.exit(0)
 
-
 def main():
     global capture_running_flag, gst_process, python_read_fd, python_write_file_obj, picam2_instance
     signal.signal(signal.SIGINT, signal_handler_main)
@@ -193,11 +172,7 @@ def main():
         logger.warning(f"<<<< USING TEMPORARY HARDCODED MODE: {TEST_RESOLUTION_WIDTH}x{TEST_RESOLUTION_HEIGHT} @ {TEST_FPS} FPS >>>>")
         picam2_target_size = (TEST_RESOLUTION_WIDTH, TEST_RESOLUTION_HEIGHT)
         picam2_target_fps = TEST_FPS
-        # Ensure REQUESTED_PICAM2_FORMAT is YUV420 for the direct-to-encoder test path
-        picam2_capture_format = "YUV420" # Explicitly set for this test
-        if REQUESTED_PICAM2_FORMAT != "YUV420":
-            logger.warning(f"Overriding REQUESTED_PICAM2_FORMAT. Using YUV420 for direct encoder test.")
-
+        picam2_capture_format = REQUESTED_PICAM2_FORMAT
 
         main_stream_config = {"size": picam2_target_size, "format": picam2_capture_format}
         controls_for_picam2 = {"FrameRate": float(picam2_target_fps)}
@@ -214,7 +189,7 @@ def main():
         actual_main_stream_config = actual_camera_config['main']
         final_width = actual_main_stream_config.get('size', (0,0))[0]
         final_height = actual_main_stream_config.get('size', (0,0))[1]
-        final_format_from_picam2 = actual_main_stream_config.get('format') # Actual format from Picamera2
+        final_format_from_picam2 = actual_main_stream_config.get('format')
         actual_fps = actual_camera_config.get('controls', {}).get('FrameRate', picam2_target_fps)
         actual_frame_buffer_size = actual_main_stream_config.get('framesize')
         actual_stride = actual_main_stream_config.get('stride')
@@ -222,37 +197,24 @@ def main():
         logger.info(f"Picamera2 actual config: {final_width}x{final_height} Fmt: '{final_format_from_picam2}' Stride: {actual_stride} Framesize: {actual_frame_buffer_size} FPS: ~{actual_fps}")
 
         assert actual_frame_buffer_size is not None, "CRITICAL: 'framesize' MUST be present in Picamera2 stream config."
-        assert actual_stride is not None, "CRITICAL: 'stride' MUST be present in Picamera2 stream config for raw formats."
-        assert final_format_from_picam2 == "YUV420", f"CRITICAL: Expected Picamera2 format to be YUV420 for this test, but got {final_format_from_picam2}"
-
-
-        # --- ADDED: Detailed check for YUV420 (I420) buffer size consistency ---
+        assert actual_stride is not None, "CRITICAL: 'stride' (for Y-plane if planar) MUST be present in Picamera2 stream config for raw formats."
+        # Additional check based on previous findings
         if final_format_from_picam2 == 'YUV420':
-            # For I420, Y plane: W_stride * H. U/V planes: (W_stride/2) * (H/2) each.
-            # GStreamer often expects stride to be even. Picamera2 stride should be.
-            # If stride for U/V is half of Y stride (common for I420):
-            y_plane_size = actual_stride * final_height
-            uv_plane_width_stride = actual_stride // 2 # Assuming Y stride is multiple of 2
-            uv_plane_height = final_height // 2
-            u_plane_size = uv_plane_width_stride * uv_plane_height
-            v_plane_size = uv_plane_width_stride * uv_plane_height
-            calculated_i420_size = y_plane_size + u_plane_size + v_plane_size
-            
-            logger.debug(f"For YUV420 (I420) from Picamera2:")
-            logger.debug(f"  W={final_width}, H={final_height}, Y-Stride={actual_stride}")
-            logger.debug(f"  Y-plane: {actual_stride}x{final_height} = {y_plane_size}")
-            logger.debug(f"  UV-planes (assumed stride {uv_plane_width_stride}): {uv_plane_width_stride}x{uv_plane_height} (x2) = {u_plane_size * 2}")
-            logger.debug(f"  Calculated total I420 size based on Y-stride: {calculated_i420_size}")
-            logger.debug(f"  Picamera2 reported framesize: {actual_frame_buffer_size}")
-            if calculated_i420_size != actual_frame_buffer_size:
+            calculated_min_i420_size_from_w_h = int(final_width * final_height * 1.5)
+            calculated_i420_size_from_stride = int(actual_stride * final_height * 1.5)
+            logger.debug(f"For YUV420 (I420) WxH based size (no stride padding) = {calculated_min_i420_size_from_w_h}")
+            logger.debug(f"For YUV420 (I420) StridexH based size (Y-plane stride) = {calculated_i420_size_from_stride}")
+            logger.debug(f"Picamera2 actual framesize (blocksize for fdsrc) = {actual_frame_buffer_size}")
+            if actual_frame_buffer_size < calculated_min_i420_size_from_w_h:
+                 logger.error(f"CRITICAL: Picamera2 framesize {actual_frame_buffer_size} is SMALLER than calculated minimum {calculated_min_i420_size_from_w_h} for {final_width}x{final_height} I420. This will fail.")
+                 return
+            if actual_frame_buffer_size < calculated_i420_size_from_stride:
                 logger.warning(
-                    f"Calculated I420 size ({calculated_i420_size}) does NOT exactly match "
-                    f"Picamera2 framesize ({actual_frame_buffer_size}). "
-                    f"Difference: {abs(calculated_i420_size - actual_frame_buffer_size)} bytes. "
-                    "This might indicate non-standard packing or subtle differences in how planes are arranged in the buffer Picamera2 provides. "
-                    "Using Picamera2's framesize for fdsrc blocksize is generally correct."
+                    f"Picamera2 framesize ({actual_frame_buffer_size}) is SMALLER than size calculated from Y-stride "
+                    f"({calculated_i420_size_from_stride}). This means the GStreamer caps 'stride' property might be problematic "
+                    "if it implies a larger buffer than 'framesize'. Removing stride from fdsrc caps."
                 )
-        # --- END ADDED ---
+                # This logic is now handled by removing stride from caps_from_fdsrc_gst in start_gstreamer_pipeline
 
 
         fd_for_gst_read, write_fd_int = os.pipe()
@@ -262,15 +224,14 @@ def main():
 
         gst_process = start_gstreamer_pipeline(
             fd_for_gst_read, final_width, final_height, actual_fps, 
-            final_format_from_picam2, actual_frame_buffer_size, actual_stride
+            final_format_from_picam2, actual_frame_buffer_size, actual_stride # Pass actual_stride for logging, but it's removed from caps
         )
         
-        def gst_output_reader(pipe_to_read, pipe_name_str): # Corrected variable names
+        def gst_output_reader(pipe_to_read, pipe_name_str):
             try:
                 for line in iter(pipe_to_read.readline, ''):
                     print(f"[{pipe_name_str}] {line.strip()}", file=sys.stderr)
-            except Exception as e:
-                logger.error(f"Error reading GStreamer {pipe_name_str}: {e}")
+            except Exception as e: logger.error(f"Error reading GStreamer {pipe_name_str}: {e}")
             finally:
                 if pipe_to_read:
                     try:
@@ -279,15 +240,13 @@ def main():
                         pass
 
         if gst_process:
-            if gst_process.stdout:
-                threading.Thread(target=gst_output_reader, args=(gst_process.stdout, "GST-STDOUT"), daemon=True).start()
-            if gst_process.stderr:
-                threading.Thread(target=gst_output_reader, args=(gst_process.stderr, "GST-STDERR"), daemon=True).start()
+            if gst_process.stdout: threading.Thread(target=gst_output_reader, args=(gst_process.stdout, "GST-STDOUT"), daemon=True).start()
+            if gst_process.stderr: threading.Thread(target=gst_output_reader, args=(gst_process.stderr, "GST-STDERR"), daemon=True).start()
 
         if gst_process and gst_process.poll() is None:
             logger.info(f"GStreamer process launched. Closing parent's copy of fd {fd_for_gst_read}")
             os.close(fd_for_gst_read); python_read_fd = -1
-        else: # GStreamer failed to launch
+        else:
             if python_read_fd != -1: os.close(python_read_fd); python_read_fd = -1
             if python_write_file_obj and not python_write_file_obj.closed: python_write_file_obj.close()
             logger.error("GStreamer process failed to launch or exited immediately. Check GST_DEBUG logs via [GST-STDERR].")
