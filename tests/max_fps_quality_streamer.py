@@ -206,16 +206,17 @@ def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
     # More specific H.264 capabilities after encoding
     # Profile 'high' corresponds to h264_profile=4 in extra-controls.
     # Level '4.2' corresponds to h264_level=12 in extra-controls.
-    caps_after_encoder = (
-        f"video/x-h264,"
-        f"profile=high,"
-        f"level=(string)4.2," # GStreamer often uses string representation for levels
-        f"width={width},"
-        f"height={height},"
-        f"framerate={framerate_str},"
-        f"stream-format=byte-stream," # Common for raw H.264 streams
-        f"alignment=au"              # Access Unit alignment
-    )
+    # caps_after_encoder = (
+    #     f"video/x-h264,"
+    #     f"profile=high,"
+    #     f"level=(string)4.2," # GStreamer often uses string representation for levels
+    #     f"width={width},"
+    #     f"height={height},"
+    #     f"framerate={framerate_str},"
+    #     f"stream-format=byte-stream," # Common for raw H.264 streams
+    #     f"alignment=au"              # Access Unit alignment
+    # )
+    caps_after_encoder = "video/x-h264,stream-format=byte-stream,alignment=au"
 
     pipeline_elements = [
         "gst-launch-1.0", "-v",  # Enable verbose GStreamer logging
