@@ -270,8 +270,11 @@ def main():
             except Exception as e:
                 logger.error(f"Error reading GStreamer {pipe_name_str}: {e}")
             finally:
-                if pipe_to_read: try: pipe_to_read.close()
-                except Exception: pass
+                if pipe_to_read:
+                    try:
+                        pipe_to_read.close()
+                    except Exception:
+                        pass
 
         if gst_process:
             if gst_process.stdout:
@@ -322,10 +325,17 @@ def main():
         local_gst_proc = gst_process; local_read_fd = python_read_fd
         picam2_instance = None; python_write_file_obj = None; gst_process = None; python_read_fd = -1
         if local_picam2:
-            if local_picam2.started: try: logger.info("Stopping Picamera2 (mainF)..."); local_picam2.stop()
-            except Exception as e: logger.error(f"Err stop Picamera2 (mainF): {e}")
-            try: logger.info("Closing Picamera2 (mainF)..."); local_picam2.close()
-            except Exception as e: logger.error(f"Error closing Picamera2 (mainF): {e}")
+            if local_picam2.started:
+                try:
+                    logger.info("Stopping Picamera2 (mainF)...")
+                    local_picam2.stop()
+                except Exception as e:
+                    logger.error(f"Err stop Picamera2 (mainF): {e}")
+            try:
+                logger.info("Closing Picamera2 (mainF)...")
+                local_picam2.close()
+            except Exception as e:
+                logger.error(f"Error closing Picamera2 (mainF): {e}")
         if local_write_obj and not local_write_obj.closed:
             try: logger.info("Closing write_file_obj (mainF)..."); local_write_obj.close()
             except Exception as e: logger.error(f"Err close write_file_obj (mainF): {e}")
