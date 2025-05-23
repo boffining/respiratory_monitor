@@ -177,21 +177,16 @@ def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
 def main():
     global gst_process
     picam2 = None
-    fd_output = None
-    read_fd, write_fd = -1, -1
+    # fd_output = None # FileOutput instance is not used in the new loop
+    write_file_obj = None # This will be our pipe's write end
+    read_fd, write_fd_int = -1, -1
 
     def signal_handler(sig, frame):
         logger.info("Shutdown signal received. Cleaning up...")
-        if picam2:
-            try:
-                if picam2.started:
-                    picam2.stop_recording()
-                    logger.info("Picamera2 recording stopped.")
-            except Exception as e:
-                logger.error(f"Error stopping Picamera2: {e}")
-            finally:
-                picam2.close()
-                logger.info("Picamera2 closed.")
+        # Make sure picam2.stop() is called before closing write_file_obj if capture loop is active
+        # The capture loop below will handle stopping picam2 on its own exit.
+        # Here, we ensure gst_process and file descriptors are handled.
+
         if gst_process and gst_process.poll() is None:
             logger.info(f"Terminating GStreamer process {gst_process.pid}...")
             gst_process.terminate()
@@ -202,14 +197,51 @@ def main():
                 logger.warning("GStreamer process did not terminate in time, killing.")
                 gst_process.kill()
                 logger.info("GStreamer process killed.")
+
+        # Picamera2 object should be stopped and closed by the main loop's finally block
+        # write_file_obj will also be closed there.
         if read_fd != -1:
-            os.close(read_fd)
-        if write_fd != -1: # Picamera2 output should close its own FD when stopped.
-             pass # os.close(write_fd) if FileOutput didn't
+            try:
+                os.close(read_fd)
+                logger.info(f"Closed read_fd: {read_fd}")
+            except OSError as e:
+                logger.error(f"Error closing read_fd: {e}")
+        
+        # The write_file_obj is critical and should be closed by the main try/finally
+        # to ensure the GStreamer pipeline's fdsrc gets an EOF.
+        # If the signal comes while the capture loop is running, the loop's finally block should handle picam2.stop() and write_file_obj.close().
+        # This signal handler is more of a fallback if the main loop is stuck elsewhere.
+        # To be safe, attempt to close write_file_obj if it exists and is open.
+        global capture_running_flag # Need a flag to coordinate with capture loop
+        capture_running_flag = False # Signal the capture loop to stop
+
+        # Delay slightly to allow capture loop to exit and close resources
+        time.sleep(0.5) 
+
+        if write_file_obj and not write_file_obj.closed:
+            try:
+                write_file_obj.close()
+                logger.info(f"Closed write_file_obj in signal handler.")
+            except Exception as e:
+                logger.error(f"Error closing write_file_obj in signal handler: {e}")
+
+        if picam2 and picam2.started: # If picam2 still thinks it's started
+             try:
+                 picam2.stop()
+                 logger.info("Picamera2 explicitly stopped in signal handler.")
+             except Exception as e:
+                 logger.error(f"Error stopping picam2 in signal handler: {e}")
+             finally:
+                if picam2: # Check again as stop() might have side effects
+                    picam2.close()
+                    logger.info("Picamera2 closed in signal handler.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    global capture_running_flag
+    capture_running_flag = True
 
     try:
         logger.info("Initializing Picamera2...")
@@ -220,100 +252,130 @@ def main():
             logger.error("Could not determine optimal camera mode. Exiting.")
             return
 
-        # --- Configure Picamera2 with the chosen mode ---
-        # The 'main' stream will be used for GStreamer.
-        # We need a raw format suitable for GStreamer's fdsrc and the hardware encoder.
-        # YUV420 is common. XRGB8888 might also be used if videoconvert handles it well.
-        # The format from selected_mode_info['format'] is often a packed Bayer format (e.g. SRGGB10_CSI2P)
-        # which needs to be converted by Picamera2 to a usable raw format like YUV420 or RGB888.
-        capture_format = "BGR888" # Or YUV420. BGR888 is often well-supported.
+        capture_format = "YUV420" # Changed to YUV420 for better memory in previous step
         main_stream_config = {"size": selected_mode_info["size"], "format": capture_format}
         
         controls = {}
-        if requested_fps: # If select_optimal_camera_mode gave a specific FPS target
+        if requested_fps:
             controls["FrameRate"] = float(requested_fps)
-        # Add other controls for quality if desired, e.g., NoiseReductionMode
-        # controls["NoiseReductionMode"] = libcamera.controls.NoiseReductionModeEnum.HighQuality
 
         video_config = picam2.create_video_configuration(
             main=main_stream_config,
             controls=controls,
-            raw=selected_mode_info # Pass the chosen sensor mode to guide configuration
+            raw=selected_mode_info,
+            queue=True, # Enable queueing for smoother manual capture
+            buffer_count=6 # Optional: Adjust buffer count if needed (default is often 4 or 6)
         )
         logger.info(f"Configuring Picamera2 with: {video_config}")
         picam2.configure(video_config)
 
-        # Verify actual configuration
         actual_config = picam2.camera_configuration()
         actual_main_stream = actual_config['main']
         final_width = actual_main_stream['size'][0]
         final_height = actual_main_stream['size'][1]
-        final_format = actual_main_stream['format'] # This is the format Picamera2 will output
-
-        # Try to get the actual FPS
-        # Picamera2 doesn't always make it trivial to get the *exact* resulting FPS post-configuration
-        # without starting and measuring. The 'FrameDurationLimits' control can give an idea.
-        # For now, we'll use the initially requested_fps or a default if it was None.
-        # The GStreamer pipeline will also specify framerate in its caps.
+        final_format = actual_main_stream['format']
         actual_fps_from_controls = actual_config['controls'].get('FrameRate', TARGET_HIGH_FPS if requested_fps else 30)
         logger.info(f"Picamera2 configured. Output stream: {final_width}x{final_height} Format: {final_format} @ ~{actual_fps_from_controls} FPS")
 
-
-        # --- Setup FileOutput to pipe to GStreamer ---
-        # Create a pipe. GStreamer will read from read_fd, Picamera2 writes to write_fd.
-        read_fd, write_fd_int = os.pipe() # write_fd_int is an integer
+        read_fd, write_fd_int = os.pipe()
         logger.info(f"Created pipe: read_fd={read_fd}, write_fd_int={write_fd_int}")
-
         write_file_obj = os.fdopen(write_fd_int, 'wb')
         logger.info(f"Wrapped write_fd_int into file object: {write_file_obj}")
 
-        # Picamera2 will write to this Python file object.
-        fd_output = FileOutput(write_file_obj)
-        
-        
-        # Picamera2 will write to the write end of the pipe.
-        # FileOutput needs the FD number.
-        # fd_output = FileOutput(write_fd)
-
-        # # Start GStreamer first, ready to read from read_fd
-        # gst_process = start_gstreamer_pipeline(read_fd, final_width, final_height, actual_fps_from_controls, final_format)
-        # if not gst_process or gst_process.poll() is not None: # Check if GStreamer started
-        #     raise RuntimeError("GStreamer process failed to start or exited prematurely.")
-
-        # # Start Picamera2 recording to the FileOutput (which writes to the pipe)
-        # # No encoder is specified here for Picamera2, as we want raw frames for GStreamer.
-        # logger.info("Starting Picamera2 recording to pipe...")
-        # picam2.start_recording(None, fd_output) # No Picamera2 encoder, raw frames to fd_output
-        
-        
-        # Start GStreamer first, ready to read from read_fd
         gst_process = start_gstreamer_pipeline(read_fd, final_width, final_height, actual_fps_from_controls, final_format)
-        if not gst_process or gst_process.poll() is not None: # Check if GStreamer started
-            # If GStreamer fails, close the write_file_obj as Picamera2 won't use it.
-            write_file_obj.close() # Important: close the Python file obj which also closes write_fd_int
-            # read_fd will be closed by the signal handler eventually or if GStreamer took it
+        if not gst_process or gst_process.poll() is not None:
             raise RuntimeError("GStreamer process failed to start or exited prematurely.")
 
-        # Start Picamera2 recording to the FileOutput (which now uses write_file_obj)
-        logger.info("Starting Picamera2 recording to pipe...")
-        picam2.start_recording(None, fd_output) # No Picamera2 encoder, raw frames to fd_output
-
-
+        logger.info("Starting Picamera2 for manual frame capture...")
+        picam2.start() # Start the camera, but not "recording" in the old sense
 
         logger.info(f"🚀 Streaming active! Target: udp://{GST_TARGET_HOST}:{GST_TARGET_PORT}")
         logger.info("Press Ctrl+C to stop.")
 
-        # Keep the script alive while streaming
-        while True:
-            if gst_process.poll() is not None:
-                logger.error(f"GStreamer process exited unexpectedly with code {gst_process.returncode}.")
+        # Manual frame capture loop
+        while capture_running_flag:
+            # This is one way to get the buffer data for the main stream.
+            # capture_buffer() is simpler if you only have one stream you care about.
+            # It returns the data for the named stream.
+            buffer_data = picam2.capture_buffer("main")
+            # If capture_buffer returns None, it could mean the stream ended or there was an issue.
+            if buffer_data is None:
+                logger.warning("capture_buffer returned None, stopping loop.")
                 break
-            time.sleep(1)
+            
+            try:
+                write_file_obj.write(buffer_data)
+                write_file_obj.flush() # Ensure data is sent to the pipe promptly
+            except BrokenPipeError:
+                logger.warning("Broken pipe writing to GStreamer. GStreamer likely exited.")
+                capture_running_flag = False # Stop this loop
+                break
+            except Exception as e:
+                logger.error(f"Error writing to pipe: {e}")
+                capture_running_flag = False # Stop this loop
+                break
+
+            if gst_process.poll() is not None:
+                logger.error(f"GStreamer process exited unexpectedly during capture with code {gst_process.returncode}.")
+                capture_running_flag = False # Stop this loop
+                break
+        
+        logger.info("Exited capture loop.")
 
     except Exception as e:
-        logger.critical(f"Critical error in main loop: {e}", exc_info=True)
+        logger.critical(f"Critical error in main execution: {e}", exc_info=True)
     finally:
-        signal_handler(signal.SIGTERM, None) # Trigger cleanup
+        logger.info("Performing final cleanup...")
+        capture_running_flag = False # Ensure loop condition is false
+
+        if picam2:
+            if picam2.started: # Check if it was started before trying to stop
+                try:
+                    logger.info("Stopping Picamera2...")
+                    picam2.stop()
+                    logger.info("Picamera2 stopped.")
+                except Exception as e:
+                    logger.error(f"Error stopping Picamera2: {e}")
+            try:
+                logger.info("Closing Picamera2...")
+                picam2.close()
+                logger.info("Picamera2 closed.")
+            except Exception as e:
+                logger.error(f"Error closing Picamera2: {e}")
+
+
+        if write_file_obj and not write_file_obj.closed:
+            try:
+                logger.info("Closing write_file_obj (pipe to GStreamer)...")
+                write_file_obj.close() # This sends EOF to GStreamer's fdsrc
+                logger.info("write_file_obj closed.")
+            except Exception as e:
+                logger.error(f"Error closing write_file_obj: {e}")
+        
+        # GStreamer process termination is handled by the signal_handler
+        # or if it exits on its own, the loop breaks.
+        # We can add a check here too if not shutting down via signal.
+        if gst_process and gst_process.poll() is None:
+            logger.info(f"Main finally: GStreamer process {gst_process.pid} still running, terminating...")
+            gst_process.terminate()
+            try:
+                gst_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                gst_process.kill()
+            logger.info("GStreamer process dealt with in main finally.")
+        
+        # read_fd for GStreamer is trickier. GStreamer takes ownership.
+        # Closing it here might be redundant if GStreamer has it, or problematic.
+        # The signal handler's attempt to close read_fd is a reasonable fallback.
+        # However, if this `finally` block is reached due to normal loop completion (not signal),
+        # GStreamer might still be running if it wasn't the cause of the loop exit.
+
+        logger.info("Cleanup complete.")
+
+    # except Exception as e:
+    #     logger.critical(f"Critical error in main loop: {e}", exc_info=True)
+    # finally:
+    #     signal_handler(signal.SIGTERM, None) # Trigger cleanup
 
 if __name__ == '__main__':
     main()
