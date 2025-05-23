@@ -6,6 +6,8 @@ import signal
 import sys
 import os
 from picamera2 import Picamera2
+import threading
+import socket
 
 # --- Configuration ---
 TEST_RESOLUTION_WIDTH = 1920
