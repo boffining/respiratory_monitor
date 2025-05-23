@@ -68,6 +68,7 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps, picam2_format_str
         f"video/x-raw,format={gst_source_format},width={width},height={height},"
         f"framerate={framerate_str_gst},stride={actual_stride_from_picam2}"
     )
+    logger.info(f"GStreamer caps_from_fdsrc_gst: {caps_from_fdsrc_gst}")
     caps_for_encoder_input_gst = f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str_gst}"
     caps_after_encoder_gst = "video/x-h264"
 
@@ -96,7 +97,7 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps, picam2_format_str
         "!", "rtph264pay", "pt=96", "mtu=1400", "config-interval=1",
         "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false"
     ])
-    logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline_elements)}")
+    logger.info(f"Launching GStreamer with: {' '.join(pipeline_elements)}")
     try:
         # Capture stderr for debugging
         gst_process = subprocess.Popen(
@@ -197,6 +198,7 @@ def main():
         actual_stride = actual_main_stream_config.get('stride')
 
         logger.info(f"Picamera2 actual config: width={final_width}, height={final_height}, format={final_format_from_picam2}, stride={actual_stride}, framesize={actual_frame_buffer_size}, fps={actual_fps}")
+        logger.info(f"Picamera2 reports format: {final_format_from_picam2}")
 
         if not actual_frame_buffer_size or not actual_stride:
             logger.error(f"CRITICAL: 'framesize' ({actual_frame_buffer_size}) or 'stride' ({actual_stride}) is missing from Picamera2 config for format {final_format_from_picam2}. Cannot reliably configure GStreamer. Exiting.")
