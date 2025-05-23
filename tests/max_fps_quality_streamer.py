@@ -121,8 +121,8 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps,
     logger.debug("------------------------------------")
     
     gst_env = os.environ.copy()
-    gst_env["GST_DEBUG"] = ("3,fdsrc:5,basesrc:5,GST_CAPS:5,negotiation:5,GST_PIPELINE:4,"
-                           "videoconvert:4,v4l2h264enc:4,h264parse:4,queue:4,default:2")
+    gst_env["GST_DEBUG"] = ("3,fdsrc:3,basesrc:3,GST_CAPS:3,negotiation:3,GST_PIPELINE:3,"
+                           "videoconvert:3,v4l2h264enc:3,h264parse:3,queue:3,default:3")
     logger.debug(f"GST_DEBUG set to: {gst_env['GST_DEBUG']}")
 
     try:
