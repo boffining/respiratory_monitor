@@ -181,15 +181,14 @@ def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
     """
     global gst_process
 
-    # Determine GStreamer format string from Picamera2's output format
     if video_format_picam == 'YUV420':
-        gst_picam2_output_format = 'I420' # I420 is the GStreamer equivalent of YUV420 planar
+        gst_picam2_output_format = 'I420'
     elif video_format_picam == 'BGR888':
         gst_picam2_output_format = 'BGR'
     elif video_format_picam == 'RGB888':
         gst_picam2_output_format = 'RGB'
     elif video_format_picam == 'XRGB8888':
-        gst_picam2_output_format = 'XRGB' # Or BGRx
+        gst_picam2_output_format = 'XRGB'
     else:
         logger.warning(f"Unsupported Picamera2 format {video_format_picam} for GStreamer. Defaulting to BGR.")
         gst_picam2_output_format = 'BGR'
@@ -197,62 +196,47 @@ def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
     framerate_str = f"{int(fps)}/1" if fps and fps > 0 else "30/1"
     target_bitrate_bps = GST_BITRATE_KBPS * 1000
 
-    # Define capabilities strings for clarity
     caps_from_fdsrc = f"video/x-raw,format={gst_picam2_output_format},width={width},height={height},framerate={framerate_str}"
-    
-    # NV12 is often a preferred input format for v4l2h264enc for hardware efficiency
     caps_for_encoder_input = f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str}"
     
-    # More specific H.264 capabilities after encoding
-    # Profile 'high' corresponds to h264_profile=4 in extra-controls.
-    # Level '4.2' corresponds to h264_level=12 in extra-controls.
-    # caps_after_encoder = (
-    #     f"video/x-h264,"
-    #     f"profile=high,"
-    #     f"level=(string)4.2," # GStreamer often uses string representation for levels
-    #     f"width={width},"
-    #     f"height={height},"
-    #     f"framerate={framerate_str},"
-    #     f"stream-format=byte-stream," # Common for raw H.264 streams
-    #     f"alignment=au"              # Access Unit alignment
-    # )
-    caps_after_encoder = "video/x-h264,stream-format=byte-stream,alignment=au"
+    # --- MODIFICATION START ---
+    # Drastically simplify the H.264 caps after the encoder.
+    # Let h264parse figure out all parameters from the bitstream.
+    caps_after_encoder = "video/x-h264"
+    # --- MODIFICATION END ---
 
-    pipeline_elements = [
-        "gst-launch-1.0", "-v",  # Enable verbose GStreamer logging
+    pipeline_elements_list = [
+        "gst-launch-1.0", "-v",
         "fdsrc", f"fd={input_fd}", "do-timestamp=true",
         "!", caps_from_fdsrc,
-        "!", "videoconvert",  # Converts format if needed (e.g., I420 to NV12)
-        "!", caps_for_encoder_input, # Explicitly set the format for the encoder
-        "!", GST_ENCODER      # e.g., "v4l2h264enc"
+        "!", "videoconvert",
+        "!", caps_for_encoder_input,
+        "!", GST_ENCODER
     ]
 
-    # Add encoder-specific controls (this part was corrected in the previous step)
     if GST_ENCODER == "v4l2h264enc":
         extra_controls_str = (
             f'extra-controls="controls,'
-            f'video_bitrate_mode=1,'       # 1 = Constant Bitrate (CBR)
+            f'video_bitrate_mode=1,'
             f'video_bitrate={target_bitrate_bps},'
-            f'h264_profile=4,'           # Corresponds to 'high' (GST_VIDEO_H264_PROFILE_HIGH)
-            f'h264_level=12,'             # Corresponds to '4.2' (GST_VIDEO_H264_LEVEL_4_2)
-            f'h264_i_frame_period=60'    # Keyframe interval (GOP size)
+            f'h264_profile=4,' # High
+            f'h264_level=12,'   # 4.2
+            f'h264_i_frame_period=60' # Keyframe interval
             f'"'
         )
-        pipeline_elements.append(extra_controls_str)
+        pipeline_elements_list.append(extra_controls_str)
 
-    # Add the rest of the pipeline elements
-    pipeline_elements.extend([
-        "!", caps_after_encoder,
-        "!", "h264parse", "config-interval=-1", # Ensure SPS/PPS are extracted
-        "!", "rtph264pay", "pt=96", "mtu=1400", "config-interval=1", # Send SPS/PPS with keyframes for RTP
+    pipeline_elements_list.extend([
+        "!", caps_after_encoder, # Using the most simplified H.264 caps
+        "!", "h264parse", "config-interval=-1", 
+        "!", "rtph264pay", "pt=96", "mtu=1400", "config-interval=1",
         "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false"
     ])
 
-    logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline_elements)}")
+    logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline_elements_list)}")
 
     try:
-        # Make sure Popen gets the list of arguments directly
-        gst_process = subprocess.Popen(pipeline_elements, pass_fds=(input_fd,))
+        gst_process = subprocess.Popen(pipeline_elements_list, pass_fds=(input_fd,))
         logger.info(f"GStreamer process started with PID: {gst_process.pid}")
     except Exception as e:
         logger.error(f"Failed to start GStreamer: {e}")
