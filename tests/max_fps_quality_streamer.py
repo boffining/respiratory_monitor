@@ -22,7 +22,8 @@ GST_BITRATE_KBPS = 20000    # 20 Mbps, very high for local streaming. Adjust if 
 # For "highest quality" with v4l2h264enc, we can also try to set constant QP
 # extra-controls="controls,h264_level=4,h264_profile=4,frame_level_rate_control_enable=0,video_bitrate=0,h264_i_frame_period=30,h264_minimum_qp_value=10,h264_maximum_qp_value=25;"
 # The qp-mode for omxh264enc might be 'cqp' for constant QP.
-GST_TARGET_HOST = "127.0.0.1" # Loopback for testing. Change to client IP or multicast.
+#GST_TARGET_HOST = "127.0.0.1" # Loopback for testing. Change to client IP or multicast.
+GST_TARGET_HOST = "192.169.50.173"
 # For streaming to any device on the LAN, use a specific client IP or a multicast address.
 # If using a specific client IP: GST_TARGET_HOST = "CLIENT_IP_ADDRESS"
 # If using multicast: GST_TARGET_HOST = "224.1.1.1" (client needs to join this)
@@ -108,6 +109,71 @@ def select_optimal_camera_mode(picam2):
         return None, None
 
 
+# def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
+#     """
+#     Starts the GStreamer pipeline in a subprocess.
+#     input_fd: File descriptor from which Picamera2 writes raw frames.
+#     """
+#     global gst_process
+
+#     # Convert Picamera2 format to GStreamer format string
+#     # Common formats: 'YUV420', 'RGB888', 'BGR888', 'XRGB8888'
+#     # GStreamer equivalents: I420, RGB, BGR, XRGB/BGRx
+#     if video_format_picam == 'YUV420':
+#         gst_format = 'I420'
+#     elif video_format_picam == 'RGB888':
+#         gst_format = 'RGB'
+#     elif video_format_picam == 'BGR888': # Common from Picamera2
+#         gst_format = 'BGR'
+#     elif video_format_picam == 'XRGB8888':
+#         gst_format = 'XRGB' # or 'BGRx' depending on actual packing
+#     else:
+#         logger.warning(f"Unsupported Picamera2 format {video_format_picam} for GStreamer. Defaulting to BGR. Check GStreamer errors.")
+#         gst_format = 'BGR' # A common default
+
+#     # Ensure FPS is a valid number for GStreamer
+#     framerate_str = f"{int(fps)}/1" if fps and fps > 0 else "30/1" # Default to 30 if unknown
+
+#     # Construct GStreamer pipeline
+#     # Using fdsrc to read from the file descriptor Picamera2 is writing to.
+#     # The caps for fdsrc are crucial.
+#     pipeline = [
+#         "gst-launch-1.0",
+#         "-v", # Verbose for debugging
+#         "fdsrc", f"fd={input_fd}", "do-timestamp=true",
+#         "!", f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate_str}",
+#         "!", "videoconvert", # Converts to a format suitable for the encoder if needed
+#         "!", GST_ENCODER,
+#             f"bitrate={GST_BITRATE_KBPS * 1000}", # Bitrate in bps for omx, maybe 'target-bitrate' for v4l2
+#             # For v4l2h264enc, quality can be set via extra-controls and qp values
+#             # Example: 'extra-controls="controls,h264_minimum_qp_value=15,h264_maximum_qp_value=25,video_bitrate_mode=0;"' (VBR QP)
+#             # For omxh264enc: 'control-rate=variable', 'target-bitrate={GST_BITRATE_KBPS * 1000}'
+#             # If using qp-mode for omxh264enc: 'qp-mode=cqp' 'initial-qp=20' 'min-qp=15' 'max-qp=28'
+#         "!", "video/x-h264,profile=high", # Ensure H.264 high profile for quality
+#         "!", "h264parse", "config-interval=-1", # Send SPS/PPS with every IDR frame
+#         "!", "rtph264pay", "pt=96", "mtu=1400", # MTU to avoid IP fragmentation
+#         "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false" # "async=false" or "sync=false"
+#     ]
+
+#     # Add encoder-specific options if needed (example for v4l2h264enc quality)
+#     if GST_ENCODER == "v4l2h264enc":
+#         pipeline.insert(pipeline.index(GST_ENCODER) + 1, 'extra-controls="controls,h264_level=12,h264_profile=4,frame_level_rate_control_enable=0,video_bitrate_mode=0,h264_i_frame_period=60,h264_minimum_qp_value=18,h264_maximum_qp_value=28;"') # Constant QP mode (approx)
+
+#     logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline)}")
+
+#     try:
+#         # The input_fd must be passed to the child process correctly.
+#         # `pass_fds` is not directly available in subprocess.Popen.
+#         # However, standard file descriptors (0, 1, 2) are inherited.
+#         # For other FDs, they are typically inherited unless CLOEXEC is set.
+#         # Picamera2's FileOutput should provide an FD that is inheritable.
+#         gst_process = subprocess.Popen(pipeline, pass_fds=(input_fd,)) #stdin=subprocess.PIPE) if feeding directly
+#         logger.info(f"GStreamer process started with PID: {gst_process.pid}")
+#     except Exception as e:
+#         logger.error(f"Failed to start GStreamer: {e}")
+#         gst_process = None
+#     return gst_process
+
 def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
     """
     Starts the GStreamer pipeline in a subprocess.
@@ -115,58 +181,65 @@ def start_gstreamer_pipeline(input_fd, width, height, fps, video_format_picam):
     """
     global gst_process
 
-    # Convert Picamera2 format to GStreamer format string
-    # Common formats: 'YUV420', 'RGB888', 'BGR888', 'XRGB8888'
-    # GStreamer equivalents: I420, RGB, BGR, XRGB/BGRx
     if video_format_picam == 'YUV420':
         gst_format = 'I420'
     elif video_format_picam == 'RGB888':
         gst_format = 'RGB'
-    elif video_format_picam == 'BGR888': # Common from Picamera2
+    elif video_format_picam == 'BGR888':
         gst_format = 'BGR'
     elif video_format_picam == 'XRGB8888':
-        gst_format = 'XRGB' # or 'BGRx' depending on actual packing
+        gst_format = 'XRGB'
     else:
-        logger.warning(f"Unsupported Picamera2 format {video_format_picam} for GStreamer. Defaulting to BGR. Check GStreamer errors.")
-        gst_format = 'BGR' # A common default
+        logger.warning(f"Unsupported Picamera2 format {video_format_picam} for GStreamer. Defaulting to BGR.")
+        gst_format = 'BGR'
 
-    # Ensure FPS is a valid number for GStreamer
-    framerate_str = f"{int(fps)}/1" if fps and fps > 0 else "30/1" # Default to 30 if unknown
+    framerate_str = f"{int(fps)}/1" if fps and fps > 0 else "30/1"
+    target_bitrate_bps = GST_BITRATE_KBPS * 1000 # Convert Kbps to bps
 
-    # Construct GStreamer pipeline
-    # Using fdsrc to read from the file descriptor Picamera2 is writing to.
-    # The caps for fdsrc are crucial.
-    pipeline = [
+    pipeline_elements = [
         "gst-launch-1.0",
-        "-v", # Verbose for debugging
+        "-v",
         "fdsrc", f"fd={input_fd}", "do-timestamp=true",
         "!", f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate_str}",
-        "!", "videoconvert", # Converts to a format suitable for the encoder if needed
-        "!", GST_ENCODER,
-            f"bitrate={GST_BITRATE_KBPS * 1000}", # Bitrate in bps for omx, maybe 'target-bitrate' for v4l2
-            # For v4l2h264enc, quality can be set via extra-controls and qp values
-            # Example: 'extra-controls="controls,h264_minimum_qp_value=15,h264_maximum_qp_value=25,video_bitrate_mode=0;"' (VBR QP)
-            # For omxh264enc: 'control-rate=variable', 'target-bitrate={GST_BITRATE_KBPS * 1000}'
-            # If using qp-mode for omxh264enc: 'qp-mode=cqp' 'initial-qp=20' 'min-qp=15' 'max-qp=28'
-        "!", "video/x-h264,profile=high", # Ensure H.264 high profile for quality
-        "!", "h264parse", "config-interval=-1", # Send SPS/PPS with every IDR frame
-        "!", "rtph264pay", "pt=96", "mtu=1400", # MTU to avoid IP fragmentation
-        "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false" # "async=false" or "sync=false"
+        "!", "videoconvert", # Essential for ensuring format compatibility with encoder
+        "!", GST_ENCODER # This will be "v4l2h264enc"
+        # The direct "bitrate=" property is removed from here
     ]
 
-    # Add encoder-specific options if needed (example for v4l2h264enc quality)
+    # Configure v4l2h264enc using extra-controls for bitrate
     if GST_ENCODER == "v4l2h264enc":
-        pipeline.insert(pipeline.index(GST_ENCODER) + 1, 'extra-controls="controls,h264_level=12,h264_profile=4,frame_level_rate_control_enable=0,video_bitrate_mode=0,h264_i_frame_period=60,h264_minimum_qp_value=18,h264_maximum_qp_value=28;"') # Constant QP mode (approx)
+        # V4L2 Controls for Constant Bitrate (CBR) mode:
+        # video_bitrate_mode=1 means CBR.
+        # video_bitrate is the target bitrate in bps.
+        # h264_profile=4 (High Profile).
+        # h264_level=12 (Level 4.2).
+        # h264_i_frame_period sets keyframe interval (GOP size).
+        # Ensure there are no trailing semicolons inside the quotes if not needed by your gst-launch version or shell.
+        # The 'controls,' prefix inside the string is important.
+        extra_controls_str = (
+            f'extra-controls="controls,'
+            f'video_bitrate_mode=1,' # 1 = Constant Bitrate (CBR)
+            f'video_bitrate={target_bitrate_bps},'
+            f'h264_profile=4,'       # 4 = High Profile
+            f'h264_level=12,'        # Corresponds to H264_LEVEL_4_2
+            f'h264_i_frame_period=60' # Keyframe interval (adjust based on FPS)
+            f'"' # Closing quote for the extra-controls string value
+        )
+        # Insert the extra_controls string right after the encoder element name
+        pipeline_elements.insert(pipeline_elements.index(GST_ENCODER) + 1, extra_controls_str)
+    
+    # Continue with the rest of the pipeline
+    pipeline_elements.extend([
+        "!", "video/x-h264,profile=high", # Match profile with encoder setting
+        "!", "h264parse", "config-interval=-1",
+        "!", "rtph264pay", "pt=96", "mtu=1400",
+        "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false"
+    ])
 
-    logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline)}")
+    logger.info(f"Starting GStreamer pipeline: {' '.join(pipeline_elements)}")
 
     try:
-        # The input_fd must be passed to the child process correctly.
-        # `pass_fds` is not directly available in subprocess.Popen.
-        # However, standard file descriptors (0, 1, 2) are inherited.
-        # For other FDs, they are typically inherited unless CLOEXEC is set.
-        # Picamera2's FileOutput should provide an FD that is inheritable.
-        gst_process = subprocess.Popen(pipeline, pass_fds=(input_fd,)) #stdin=subprocess.PIPE) if feeding directly
+        gst_process = subprocess.Popen(pipeline_elements, pass_fds=(input_fd,))
         logger.info(f"GStreamer process started with PID: {gst_process.pid}")
     except Exception as e:
         logger.error(f"Failed to start GStreamer: {e}")
