@@ -52,8 +52,9 @@ def select_optimal_camera_mode(picam2_select):
 
 def start_gstreamer_pipeline(input_fd_gst, width, height, fps, 
                              picam2_actual_format_str, 
-                             actual_frame_buffer_size, actual_stride_from_picam2): # actual_stride_from_picam2 is now informational
+                             actual_frame_buffer_size, actual_stride_from_picam2):
     global gst_process
+
     gst_source_format = 'BGR' 
     if picam2_actual_format_str == 'YUV420': gst_source_format = 'I420'
     elif picam2_actual_format_str == 'BGR888': gst_source_format = 'BGR'
@@ -64,32 +65,32 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps,
     framerate_str_gst = f"{int(fps)}/1" if fps and fps > 0 else "30/1"
     target_bitrate_bps_gst = GST_BITRATE_KBPS * 1000
 
-    # --- MODIFICATION: Remove stride from caps_from_fdsrc_gst ---
-    # Let downstream elements (like videoconvert) assume tightly packed based on width/height
-    # if stride is not specified, or use stride if it were correctly available and consistent.
-    # Given the previous mismatch, removing stride is safer here.
-    # fdsrc's blocksize is set to the actual buffer size from Picamera2.
-    # The caps now describe the logical video within that block, assuming standard packing (stride=width).
+    # Caps for fdsrc output: describes the raw data from Picamera2.
+    # Stride removed here as per last successful step for initial fdsrc->videoconvert link.
+    # videoconvert will assume stride=width for input if not specified.
     caps_from_fdsrc_gst = (
         f"video/x-raw,format={gst_source_format},width={width},height={height},"
         f"framerate={framerate_str_gst},"
         f"pixel-aspect-ratio=1/1,interlace-mode=progressive"
-        # Stride removed: f"stride={actual_stride_from_picam2}," 
     )
-    logger.info(f"Using fdsrc output caps (stride removed, will be inferred as width by videoconvert): {caps_from_fdsrc_gst}")
-    
-    caps_for_encoder_input_gst = f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str_gst}"
+    logger.info(f"GStreamer: fdsrc output caps will be: {caps_from_fdsrc_gst}")
+    logger.info(f"GStreamer: fdsrc blocksize will be: {actual_frame_buffer_size} (from Picamera2 framesize)")
+    logger.info(f"GStreamer: Picamera2 reported stride (informational): {actual_stride_from_picam2}")
+
+
+    # Caps after encoder: very simple, let h264parse figure out details
     caps_after_encoder_gst = "video/x-h264"
 
     pipeline_elements = [
         "gst-launch-1.0", "-v",
         "fdsrc", f"fd={input_fd_gst}", f"blocksize={actual_frame_buffer_size}", "num-buffers=-1",
         "!", "queue", 
-        "!", caps_from_fdsrc_gst, # Stride is no longer specified here
+        "!", caps_from_fdsrc_gst, # Describes data coming out of fdsrc (and thus into videoconvert)
         "!", "videoconvert",
         "!", "queue", 
-        "!", caps_for_encoder_input_gst,
-        "!", GST_ENCODER
+        # --- MODIFICATION: Removed explicit NV12 caps here ---
+        # "!", f"video/x-raw,format=NV12,width={width},height={height},framerate={framerate_str_gst}", # REMOVED
+        "!", GST_ENCODER # Let v4l2h264enc negotiate its preferred input format with videoconvert
     ]
 
     if GST_ENCODER == "v4l2h264enc":
@@ -109,14 +110,15 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps,
         "!", "rtph264pay", "pt=96", "mtu=1400", "config-interval=1",
         "!", "udpsink", f"host={GST_TARGET_HOST}", f"port={GST_TARGET_PORT}", "sync=false"
     ])
-    # (Detailed parameter logging and GST_DEBUG setup from previous version should be kept)
+    
     logger.debug("--- GStreamer Launch Parameters ---")
+    # (Same detailed logging of parameters as before)
     logger.debug(f"  Input FD for GStreamer: {input_fd_gst}")
     logger.debug(f"  Resolution: {width}x{height}")
     logger.debug(f"  FPS: {fps} (GStreamer framerate: {framerate_str_gst})")
     logger.debug(f"  Picamera2 Format (GStreamer equivalent): {gst_source_format}")
     logger.debug(f"  Actual Frame Buffer Size (blocksize for fdsrc): {actual_frame_buffer_size}")
-    logger.debug(f"  Stride from Picamera2 (informational, not used in fdsrc caps): {actual_stride_from_picam2}")
+    logger.debug(f"  Stride from Picamera2 (used for logging, removed from fdsrc caps): {actual_stride_from_picam2}")
     logger.debug(f"  Full GStreamer pipeline string to be launched:\n{' '.join(pipeline_elements)}")
     logger.debug("------------------------------------")
     
@@ -133,6 +135,7 @@ def start_gstreamer_pipeline(input_fd_gst, width, height, fps,
     except Exception as e:
         logger.error(f"Failed to start GStreamer: {e}"); gst_process = None
     return gst_process
+
 
 # (signal_handler_main remains the same robust version)
 def signal_handler_main(sig, frame):
