@@ -6,7 +6,7 @@ gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GLib
 
 from picamera2 import Picamera2
-# from libcamera import controls # Not strictly needed if using integer/string values directly
+# from libcamera import controls # For AF, if needed
 
 import signal
 import sys
@@ -16,33 +16,38 @@ Gst.init(None)
 
 # --- Picamera2 Configuration ---
 picam2 = Picamera2()
-# Default resolution and framerate, adjust as needed
-# video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
-                                                #  lores={"size": (640, 360), "format": "YUV420"},
-                                                #  controls={"FrameRate": 30})
 
-# # 2K resolution
-# video_config = picam2.create_video_configuration(main={"size": (1920, 1080), "format": "RGB888"},
-#                                                  lores={"size": (1920, 1080), "format": "YUV420"},
-#                                                  controls={"FrameRate": 60})
+# Target resolution and framerate
+target_width = 1920
+target_height = 1080
+target_fps = 60
+# Example target bitrate for 1080p60 (e.g., 8 Mbps)
+target_bitrate_kbps = 8000 # This will be used in GStreamer in bps
+target_bitrate_bps = target_bitrate_kbps * 1000
 
-# 2K resolution and 30fps framerate
-video_config = picam2.create_video_configuration(main={"size": (2328, 1748), "format": "RGB888"},
-                                                 lores={"size": (2328, 1748), "format": "YUV420"},
-                                                 controls={"FrameRate": 30})
-
-
+# Configure Picamera2 - using main stream for encoding
+video_config = picam2.create_video_configuration(
+    main={"size": (target_width, target_height), "format": "YUV420"}, # YUV420 for encoder
+    controls={"FrameRate": target_fps}
+    # You can add a lores stream if you need it for other purposes
+    # lores={"size": (640, 480), "format": "YUV420"}
+)
 picam2.configure(video_config)
-picam2.start()
+picam2.start() # Picamera2 needs to be running if libcamerasrc isn't used,
+               # or started briefly to get parameters if libcamerasrc is used.
+               # For libcamerasrc, we primarily use Picamera2 for config discovery.
 picam2.stop()
 
-gst_format = "I420"
-width = video_config['lores']['size'][0]
-height = video_config['lores']['size'][1]
+# Parameters for GStreamer (derived from the 'main' stream configuration now)
+gst_format = "I420" # YUV420 from Picamera2 is often I420 for GStreamer raw caps
+width = video_config['main']['size'][0]
+height = video_config['main']['size'][1]
 framerate = int(video_config['controls']['FrameRate'])
-stride = video_config['lores']['stride']
+# Stride can be important, ensure it's from the correct stream config
+stride = video_config['main']['stride']
 
-picam2.close()
+
+picam2.close() # Release Picamera2 if libcamerasrc will take over
 print("Picamera2 instance closed.")
 print(f"Camera parameters for GStreamer: {width}x{height} @{framerate}fps, Format: {gst_format}, Stride: {stride}")
 
@@ -52,47 +57,45 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, **properties):
         super(SensorFactory, self).__init__(**properties)
 
-        # Define autofocus settings based on your gst-inspect output
-        # AfMode: 0=manual, 1=auto, 2=continuous
-        # AfSpeed: 0=normal, 1=fast
-        # AfRange: 0=normal, 1=macro, 2=full
-        
-        # Property names from your gst-inspect output appear to be lowercase with hyphens:
-        # e.g., af-mode, af-speed, af-range
-        
-        # Note: GStreamer property values can sometimes be integers or string representations of the enum
-        # Check gst-inspect output for default values and accepted types if unsure.
-        # For enums, integer values are usually reliable.
-        af_mode_val = 2      # continuous
-        af_speed_val = 0     # normal
-        af_range_val = 2     # full
+        # Autofocus controls if your libcamerasrc supports them directly (example)
+        af_mode_val = 2  # continuous
+        af_speed_val = 0 # normal
+        af_range_val = 2 # full
 
-        # Construct the libcamerasrc element with direct properties
-        # Ensure property names match exactly what gst-inspect-1.0 libcamerasrc shows
         self.launch_string = (
+            # Using libcamerasrc with direct AF properties (if supported, adapt as per previous discussions)
+            # If your libcamerasrc is very old and doesn't support these, AF might not work via GStreamer props
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
-            #f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! "
-            f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=25000 ! "
+            # Use the hardware H.264 encoder: v4l2h264enc
+            # Bitrate is set in bps for v4l2h264enc
+            f"v4l2h264enc bitrate={target_bitrate_bps} ! "
+            # Optional: specify H.264 profile/level if needed, e.g., for 1080p60 level 4.2 might be appropriate
+            # f"video/x-h264,level=(string)4.2 ! "
             f"rtph264pay name=pay0 pt=96"
         )
+        # Fallback if v4l2h264enc is not found, you might try omxh264enc (older)
+        # self.launch_string = (
+        #     f"libcamerasrc ! video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
+        #     f"videoconvert ! omxh264enc target-bitrate={target_bitrate_bps} control-rate=variable ! "
+        #     f"rtph264pay name=pay0 pt=96"
+        # )
+
         print(f"Using GStreamer launch string: {self.launch_string}")
 
     def do_create_element(self, url):
         return Gst.parse_launch(self.launch_string)
 
-# ... (rest of your GstServer, signal_handler, and main block remains the same) ...
+# ... (Rest of your GstServer, signal_handler, and main block)
 class GstServer():
     def __init__(self):
         self.server = GstRtspServer.RTSPServer()
         self.factory = SensorFactory()
         self.factory.set_shared(True)
-
         mounts = self.server.get_mount_points()
         mounts.add_factory("/stream", self.factory)
         self.server.attach(None)
-
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -101,12 +104,10 @@ class GstServer():
         except Exception as e:
             print(f"Could not automatically determine IP address: {e}")
             self.ip_address = "<your_pi_ip>"
-
         print(f"RTSP server started on rtsp://{self.ip_address}:8554/stream")
         print("Press Ctrl+C to stop the server.")
 
 loop = GLib.MainLoop()
-
 def signal_handler(sig, frame):
     print("\nStopping RTSP server...")
     loop.quit()
@@ -121,30 +122,3 @@ if __name__ == '__main__':
         loop.run()
     except Exception as e:
         print(f"Error during main loop: {e}")
-        
-        
-        
-        
-        
-        
-        
-"""        
->>> print(picam2.sensor_modes)
-[0:37:10.598495807] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 1280x720-SRGGB10_CSI2P
-[0:37:10.599166783] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 1280x720-SRGGB10_1X10 - Selected unicam format: 1280x720-pRAA
-[0:37:10.610757188] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 1920x1080-SRGGB10_CSI2P
-[0:37:10.611407739] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 1920x1080-SRGGB10_1X10 - Selected unicam format: 1920x1080-pRAA
-[0:37:10.624355021] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 2328x1748-SRGGB10_CSI2P
-[0:37:10.624982942] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 2328x1748-SRGGB10_1X10 - Selected unicam format: 2328x1748-pRAA
-[0:37:10.641492270] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 3840x2160-SRGGB10_CSI2P
-[0:37:10.642125209] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 3840x2160-SRGGB10_1X10 - Selected unicam format: 3840x2160-pRAA
-[0:37:10.666010754] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 4656x3496-SRGGB10_CSI2P
-[0:37:10.666663786] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 4656x3496-SRGGB10_1X10 - Selected unicam format: 4656x3496-pRAA
-[
-{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (1280, 720), 'fps': 80.01, 'crop_limits': (1048, 1042, 2560, 1440), 'exposure_limits': (287, 120729139, 20000)}, 
-{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (1920, 1080), 'fps': 60.05, 'crop_limits': (408, 674, 3840, 2160), 'exposure_limits': (282, 118430097, 20000)}, 
-{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (2328, 1748), 'fps': 30.0, 'crop_limits': (0, 0, 4656, 3496), 'exposure_limits': (305, 127960311, 20000)}, 
-{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (3840, 2160), 'fps': 18.0, 'crop_limits': (408, 672, 3840, 2160), 'exposure_limits': (491, 206049113, 20000)}, 
-{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (4656, 3496), 'fps': 9.0, 'crop_limits': (0, 0, 4656, 3496), 'exposure_limits': (592, 248567756, 20000)}]
-
-"""
