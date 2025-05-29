@@ -52,38 +52,39 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
         af_speed_val = 0
         af_range_val = 2
 
-        # V4L2 controls for v4l2h264enc
-        # IMPORTANT: Values for bitrate_mode, video_bitrate, and h264_i_frame_period
-        # should be verified with 'v4l2-ctl -d /dev/your-encoder-device --list-ctrls'
+        # V4L2 controls for v4l2h264enc based on your v4l2-ctl output
+        # Ensure 'framerate' and 'target_bitrate_bps' are correctly defined and accessible
+        # For example, if they are accessible as global variables:
+        # global framerate, target_bitrate_bps
 
-        # Example: setting keyframe interval to 1 second
-        # Ensure 'framerate' variable is accessible here (e.g., global or passed in)
-        keyframe_interval = framerate
+        keyframe_interval = framerate  # Sets keyframe interval to 'framerate' frames (e.g., 60 for 1-second interval at 60fps)
         
-        # Ensure 'target_bitrate_bps' variable is accessible here
-        # Example: if video_bitrate_mode=1 means CBR (Constant BitRate)
-        bitrate_mode_val = 1 # Verify this value with v4l2-ctl
+        # From v4l2-ctl: video_bitrate_mode default 0 (VBR). If you want CBR, and 1 means CBR:
+        bitrate_mode_val = 1
+        
+        # From v4l2-ctl: h264_level default 11 (Level 4.0). For 1080p@60fps, Level 4.2 is better.
+        # Level 4.0 = 11, Level 4.1 = 12, Level 4.2 = 13. (These are typical V4L2 enum values)
+        h264_level_val = 13 # Corresponds to H.264 Level 4.2
+
+        # From v4l2-ctl: h264_profile default 4 (High). We can set it explicitly if desired.
+        h264_profile_val = 4 # High Profile
 
         v4l2_encoder_controls = (
-            f"controls," # This is the structure name
-            f"video_bitrate_mode={bitrate_mode_val},"  # Set bitrate mode (e.g., CBR)
-            f"video_bitrate={target_bitrate_bps},"    # Set target bitrate
-            f"h264_i_frame_period={keyframe_interval}"  # Set keyframe interval
+            f"controls,"  # Name of the GstStructure
+            f"video_bitrate_mode={bitrate_mode_val},"
+            f"video_bitrate={target_bitrate_bps},"    # Add this back!
+            f"h264_i_frame_period={keyframe_interval}," # Add this back!
+            f"h264_level={h264_level_val},"
+            f"h264_profile={h264_profile_val}"
         )
-        # If your v4l2-ctl output shows different names or no bitrate_mode, adjust accordingly.
-        # For instance, if only bitrate and keyframe interval are needed:
-        # v4l2_encoder_controls = (
-        #     f"controls,"
-        #     f"video_bitrate={target_bitrate_bps},"
-        #     f"h264_i_frame_period={keyframe_interval}"
-        # )
 
         self.launch_string = (
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
             f"v4l2h264enc extra-controls=\"{v4l2_encoder_controls}\" ! "
-            f"video/x-h264,stream-format=byte-stream,alignment=au ! " # Explicit H.264 caps
+            # Explicitly set H.264 caps based on encoder settings for SDP generation
+            f"video/x-h264,stream-format=byte-stream,alignment=au,level=(string)4.2,profile=(string)high ! "
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
@@ -94,9 +95,6 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
         except GLib.Error as e:
             print(f"Fatal error parsing GStreamer launch string: {e}")
             print(f"Problematic launch string: {self.launch_string}")
-            # Optionally, you could raise the error or exit to prevent the RTSP server 
-            # from continuing in a broken state if the pipeline is fundamentally flawed.
-            # For now, returning None might lead to the "could not create element" RTSP server log.
             return None
 
 
