@@ -47,58 +47,57 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, **properties):
         super(SensorFactory, self).__init__(**properties)
 
-        # Autofocus controls for libcamerasrc (ensure these are correct for your libcamerasrc)
+        # Autofocus controls for libcamerasrc
         af_mode_val = 2
         af_speed_val = 0
         af_range_val = 2
 
         # V4L2 controls for v4l2h264enc
-        # IMPORTANT: Verify these control names and values using 'v4l2-ctl -d /dev/videoXX --list-ctrls'
-        # target_bitrate_bps is already defined globally in your script (e.g., 8000000)
+        # IMPORTANT: Values for bitrate_mode, video_bitrate, and h264_i_frame_period
+        # should be verified with 'v4l2-ctl -d /dev/your-encoder-device --list-ctrls'
 
-        # Example: Assuming 'v4l2-ctl' confirms:
-        # - 'video_bitrate' is the control for bitrate.
-        # - 'h264_i_frame_period' is for keyframe interval (e.g., 60 for 1-second interval at 60fps).
-        # - 'video_bitrate_mode' exists, and e.g., '1' means CBR (Constant Bitrate).
-        #   If 'video_bitrate_mode' is not available or needed, you can omit it.
+        # Example: setting keyframe interval to 1 second
+        # Ensure 'framerate' variable is accessible here (e.g., global or passed in)
+        keyframe_interval = framerate
         
-        # Adjust these based on your 'v4l2-ctl' output and needs:
-        keyframe_interval = framerate # Set keyframe interval to 1 second (framerate frames)
-        bitrate_mode_cbr = 1 # Example value for CBR, check v4l2-ctl for actual values
+        # Ensure 'target_bitrate_bps' variable is accessible here
+        # Example: if video_bitrate_mode=1 means CBR (Constant BitRate)
+        bitrate_mode_val = 1 # Verify this value with v4l2-ctl
 
         v4l2_encoder_controls = (
             f"controls," # This is the structure name
-            f"video_bitrate_mode={bitrate_mode_cbr}" # Set bitrate mode (e.g., CBR)
-            # f"video_bitrate={target_bitrate_bps},"   # Set target bitrate
-            # f"h264_i_frame_period={keyframe_interval}" # Set keyframe interval
+            f"video_bitrate_mode={bitrate_mode_val},"  # Set bitrate mode (e.g., CBR)
+            f"video_bitrate={target_bitrate_bps},"    # Set target bitrate
+            f"h264_i_frame_period={keyframe_interval}"  # Set keyframe interval
         )
-        # If video_bitrate_mode is not found or you want to omit it, simplify:
+        # If your v4l2-ctl output shows different names or no bitrate_mode, adjust accordingly.
+        # For instance, if only bitrate and keyframe interval are needed:
         # v4l2_encoder_controls = (
         #     f"controls,"
         #     f"video_bitrate={target_bitrate_bps},"
         #     f"h264_i_frame_period={keyframe_interval}"
         # )
 
-
         self.launch_string = (
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
             f"v4l2h264enc extra-controls=\"{v4l2_encoder_controls}\" ! "
-            # Adding explicit H.264 caps can help ensure compatibility with the payloader
-            f"video/x-h264,stream-format=byte-stream,alignment=au ! "
+            f"video/x-h264,stream-format=byte-stream,alignment=au ! " # Explicit H.264 caps
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
 
     def do_create_element(self, url):
-        # It's good to catch GStreamer parsing errors here for clearer debugging
         try:
             return Gst.parse_launch(self.launch_string)
         except GLib.Error as e:
-            print(f"Error parsing GStreamer launch string: {e}")
+            print(f"Fatal error parsing GStreamer launch string: {e}")
             print(f"Problematic launch string: {self.launch_string}")
-            return None # Or handle error appropriately
+            # Optionally, you could raise the error or exit to prevent the RTSP server 
+            # from continuing in a broken state if the pipeline is fundamentally flawed.
+            # For now, returning None might lead to the "could not create element" RTSP server log.
+            return None
 
 
 # Picamera2 instance closed.
