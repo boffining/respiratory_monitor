@@ -27,16 +27,21 @@ stream_metadata = picam2.capture_metadata() # Get metadata after first frame
 picam2.stop() # Stop it, GStreamer will handle the feed later
 
 # If using lores stream for encoding:
-sensor_format = picam2.camera_controls['ColourSpace'].value # e.g. "sYCC" or "Jpeg"
 # For GStreamer, we need a raw format like I420 or NV12 if YUV420 is from lores
 # Picamera2's "YUV420" for lores stream is often I420
 gst_format = "I420" # Common for YUV420 from picam2 lores
 width = video_config['lores']['size'][0]
 height = video_config['lores']['size'][1]
 framerate = int(video_config['controls']['FrameRate'])
-stride = video_config['lores']['stride'] # Stride for the lores stream
+# Ensure stride is correctly fetched after configuration.
+# The picam2.start()/stop() sequence before this helps populate actual stream properties.
+# However, stride should be in video_config['lores']['stride'] after picam2.configure()
+# For robustness, ensure picam2 was started and stopped if relying on dynamically filled values not
+# directly resulting from the initial create_video_configuration.
+# In your code, picam2.start() and picam2.stop() *are* called before this block.
+stride = video_config['lores']['stride']
 
-print(f"Camera configured: {width}x{height} @{framerate}fps, Format: {gst_format}, Stride: {stride}")
+print(f"Camera configured: {width}x{height} @{framerate}fps, Format: {gst_format}, Stride: {stride}") # Updated print
 
 # --- GStreamer RTSP Server Configuration ---
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
