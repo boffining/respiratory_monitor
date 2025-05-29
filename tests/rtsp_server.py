@@ -73,7 +73,8 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
-            f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! "
+            #f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! "
+            f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=25000 ! "
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
