@@ -22,13 +22,13 @@ picam2 = Picamera2()
                                                 #  controls={"FrameRate": 30})
 
 # 2K resolution
-video_config = picam2.create_video_configuration(main={"size": (2560, 1440), "format": "RGB888"},
-                                                 lores={"size": (1280, 720), "format": "YUV420"},
+video_config = picam2.create_video_configuration(main={"size": (1920, 1080), "format": "RGB888"},
+                                                 lores={"size": (1920, 1080), "format": "YUV420"},
                                                  controls={"FrameRate": 60})
 
-# 2K resolution and 60fps framerate
-# video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
-                                                #  lores={"size": (640, 360), "format": "YUV420"},
+# 2K resolution and 30fps framerate
+# video_config = picam2.create_video_configuration(main={"size": (2328, 1748), "format": "RGB888"},
+                                                #  lores={"size": (2328, 1748), "format": "YUV420"},
                                                 #  controls={"FrameRate": 30})
 
 
@@ -120,3 +120,30 @@ if __name__ == '__main__':
         loop.run()
     except Exception as e:
         print(f"Error during main loop: {e}")
+        
+        
+        
+        
+        
+        
+        
+"""        
+>>> print(picam2.sensor_modes)
+[0:37:10.598495807] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 1280x720-SRGGB10_CSI2P
+[0:37:10.599166783] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 1280x720-SRGGB10_1X10 - Selected unicam format: 1280x720-pRAA
+[0:37:10.610757188] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 1920x1080-SRGGB10_CSI2P
+[0:37:10.611407739] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 1920x1080-SRGGB10_1X10 - Selected unicam format: 1920x1080-pRAA
+[0:37:10.624355021] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 2328x1748-SRGGB10_CSI2P
+[0:37:10.624982942] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 2328x1748-SRGGB10_1X10 - Selected unicam format: 2328x1748-pRAA
+[0:37:10.641492270] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 3840x2160-SRGGB10_CSI2P
+[0:37:10.642125209] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 3840x2160-SRGGB10_1X10 - Selected unicam format: 3840x2160-pRAA
+[0:37:10.666010754] [3754]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XBGR8888 (1) 4656x3496-SRGGB10_CSI2P
+[0:37:10.666663786] [3757]  INFO RPI vc4.cpp:630 Sensor: /base/soc/i2c0mux/i2c@1/imx519@1a - Selected sensor format: 4656x3496-SRGGB10_1X10 - Selected unicam format: 4656x3496-pRAA
+[
+{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (1280, 720), 'fps': 80.01, 'crop_limits': (1048, 1042, 2560, 1440), 'exposure_limits': (287, 120729139, 20000)}, 
+{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (1920, 1080), 'fps': 60.05, 'crop_limits': (408, 674, 3840, 2160), 'exposure_limits': (282, 118430097, 20000)}, 
+{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (2328, 1748), 'fps': 30.0, 'crop_limits': (0, 0, 4656, 3496), 'exposure_limits': (305, 127960311, 20000)}, 
+{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (3840, 2160), 'fps': 18.0, 'crop_limits': (408, 672, 3840, 2160), 'exposure_limits': (491, 206049113, 20000)}, 
+{'format': SRGGB10_CSI2P, 'unpacked': 'SRGGB10', 'bit_depth': 10, 'size': (4656, 3496), 'fps': 9.0, 'crop_limits': (0, 0, 4656, 3496), 'exposure_limits': (592, 248567756, 20000)}]
+
+"""
