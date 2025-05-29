@@ -27,8 +27,8 @@ picam2 = Picamera2()
 #                                                  controls={"FrameRate": 60})
 
 # 2K resolution and 30fps framerate
-video_config = picam2.create_video_configuration(main={"size": (2560, 1440), "format": "RGB888"},
-                                                 lores={"size": (2560, 1440), "format": "YUV420"},
+video_config = picam2.create_video_configuration(main={"size": (2048, 1080), "format": "RGB888"},
+                                                 lores={"size": (2048, 1080), "format": "YUV420"},
                                                  controls={"FrameRate": 30})
 
 
