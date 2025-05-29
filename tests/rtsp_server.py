@@ -47,30 +47,58 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, **properties):
         super(SensorFactory, self).__init__(**properties)
 
+        # Autofocus controls for libcamerasrc (ensure these are correct for your libcamerasrc)
         af_mode_val = 2
         af_speed_val = 0
         af_range_val = 2
 
-        # Construct the extra-controls string for v4l2h264enc
-        # The GstStructure typically needs a name, "controls" is common for V4L2.
-        # Then, a comma-separated list of 'control_name=value'.
-        v4l2_controls_str = f"controls,video_bitrate={target_bitrate_bps}"
-        # You can add more controls here if needed, e.g.:
-        # v4l2_controls_str = f"controls,video_bitrate={target_bitrate_bps},h264_i_frame_period=60"
+        # V4L2 controls for v4l2h264enc
+        # IMPORTANT: Verify these control names and values using 'v4l2-ctl -d /dev/videoXX --list-ctrls'
+        # target_bitrate_bps is already defined globally in your script (e.g., 8000000)
+
+        # Example: Assuming 'v4l2-ctl' confirms:
+        # - 'video_bitrate' is the control for bitrate.
+        # - 'h264_i_frame_period' is for keyframe interval (e.g., 60 for 1-second interval at 60fps).
+        # - 'video_bitrate_mode' exists, and e.g., '1' means CBR (Constant Bitrate).
+        #   If 'video_bitrate_mode' is not available or needed, you can omit it.
+        
+        # Adjust these based on your 'v4l2-ctl' output and needs:
+        keyframe_interval = framerate # Set keyframe interval to 1 second (framerate frames)
+        bitrate_mode_cbr = 1 # Example value for CBR, check v4l2-ctl for actual values
+
+        v4l2_encoder_controls = (
+            f"controls," # This is the structure name
+            f"video_bitrate_mode={bitrate_mode_cbr}" # Set bitrate mode (e.g., CBR)
+            # f"video_bitrate={target_bitrate_bps},"   # Set target bitrate
+            # f"h264_i_frame_period={keyframe_interval}" # Set keyframe interval
+        )
+        # If video_bitrate_mode is not found or you want to omit it, simplify:
+        # v4l2_encoder_controls = (
+        #     f"controls,"
+        #     f"video_bitrate={target_bitrate_bps},"
+        #     f"h264_i_frame_period={keyframe_interval}"
+        # )
+
 
         self.launch_string = (
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
-            # Use the explicitly named GstStructure for extra-controls
-            # f"v4l2h264enc extra-controls=\"{v4l2_controls_str}\" ! "
-            f"v4l2h264enc ! "
+            f"v4l2h264enc extra-controls=\"{v4l2_encoder_controls}\" ! "
+            # Adding explicit H.264 caps can help ensure compatibility with the payloader
+            f"video/x-h264,stream-format=byte-stream,alignment=au ! "
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
 
     def do_create_element(self, url):
-        return Gst.parse_launch(self.launch_string)
+        # It's good to catch GStreamer parsing errors here for clearer debugging
+        try:
+            return Gst.parse_launch(self.launch_string)
+        except GLib.Error as e:
+            print(f"Error parsing GStreamer launch string: {e}")
+            print(f"Problematic launch string: {self.launch_string}")
+            return None # Or handle error appropriately
 
 
 # Picamera2 instance closed.
