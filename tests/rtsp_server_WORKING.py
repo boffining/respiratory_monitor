@@ -6,9 +6,6 @@ gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GLib
 
 from picamera2 import Picamera2
-# You might need to import libcamera.controls if you were to use symbolic names
-# from libcamera import controls # Not strictly needed for this integer-based approach
-
 import signal
 import sys
 import socket # To get local IP
@@ -18,21 +15,31 @@ Gst.init(None)
 
 # --- Picamera2 Configuration ---
 picam2 = Picamera2()
+# Adjust resolution and framerate as needed
 video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
-                                                 lores={"size": (640, 360), "format": "YUV420"},
+                                                 lores={"size": (640, 360), "format": "YUV420"}, # LoRes stream for encoding
                                                  controls={"FrameRate": 30})
 picam2.configure(video_config)
+
+# Start picam2 briefly to ensure configuration is applied and to allow metadata/stride retrieval
 picam2.start()
 picam2.stop()
 
+# Extract necessary parameters from the configuration
+# Picamera2's "YUV420" for lores stream is often I420 for GStreamer
 gst_format = "I420"
 width = video_config['lores']['size'][0]
 height = video_config['lores']['size'][1]
 framerate = int(video_config['controls']['FrameRate'])
+# Stride is important for correct buffer interpretation if there's padding.
+# libcamerasrc should ideally handle this, but good to have the correct value.
 stride = video_config['lores']['stride']
 
+# IMPORTANT: Close the Picamera2 instance to release libcamera resources
+# before libcamerasrc tries to use them.
 picam2.close()
 print("Picamera2 instance closed.")
+
 print(f"Camera parameters for GStreamer: {width}x{height} @{framerate}fps, Format: {gst_format}, Stride: {stride}")
 
 
@@ -40,25 +47,8 @@ print(f"Camera parameters for GStreamer: {width}x{height} @{framerate}fps, Forma
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, **properties):
         super(SensorFactory, self).__init__(**properties)
-
-        # libcamera control values for autofocus:
-        # AfModeEnum: Manual=0, Auto=1, Continuous=2
-        # AfSpeedEnum: Normal=0, Fast=1
-        # AfRangeEnum: Normal=0, Macro=1, Full=2 (Full is often the default and a good choice)
-
-        af_mode_continuous = 2  # Corresponds to libcamera.controls.AfModeEnum.Continuous
-        af_speed_normal = 0     # Corresponds to libcamera.controls.AfSpeedEnum.Normal
-        af_range_full = 2       # Corresponds to libcamera.controls.AfRangeEnum.Full
-
-        # Construct the extra-controls string for libcamerasrc
-        # Control names are case-sensitive as defined by libcamera.
-        extra_controls_str = f"AfMode={af_mode_continuous},AfSpeed={af_speed_normal},AfRange={af_range_full}"
-        # To only set AfMode to continuous and use defaults for others, you could use:
-        # extra_controls_str = f"AfMode={af_mode_continuous}"
-
         self.launch_string = (
-            # Add the extra-controls property to libcamerasrc
-            f"libcamerasrc extra-controls=\"{extra_controls_str}\" ! "
+            f"libcamerasrc ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
             f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! "
@@ -96,6 +86,8 @@ loop = GLib.MainLoop()
 def signal_handler(sig, frame):
     print("\nStopping RTSP server...")
     loop.quit()
+    # Picamera2 object is already closed if initialization was successful.
+    # No need to call picam2.stop() here again on a closed object.
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -107,3 +99,6 @@ if __name__ == '__main__':
         loop.run()
     except Exception as e:
         print(f"Error during main loop: {e}")
+    # finally:
+        # Picamera2 object should be closed before loop.run() if this point is reached
+        # No specific picam2 cleanup needed here anymore as it's closed after configuration.
