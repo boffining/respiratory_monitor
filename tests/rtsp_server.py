@@ -52,21 +52,18 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
         af_range_val = 2
 
         # Construct the extra-controls string for v4l2h264enc
-        # The most common V4L2 control name for bitrate is video_bitrate
-        # Other controls like keyframe interval (gop_size) can also be set here.
-        # Example: video_bitrate={target_bitrate_bps},h264_i_frame_period=60
-        # For now, just setting bitrate.
-        v4l2_controls = f"video_bitrate={target_bitrate_bps}"
-        # Some v4l2 elements might need a structure prefix like "s," but often just key-value pairs work.
-        # Try without "s," first: extra-controls="{v4l2_controls}"
-        # If that fails, try: extra-controls="s,{v4l2_controls}"
+        # The GstStructure typically needs a name, "controls" is common for V4L2.
+        # Then, a comma-separated list of 'control_name=value'.
+        v4l2_controls_str = f"controls,video_bitrate={target_bitrate_bps}"
+        # You can add more controls here if needed, e.g.:
+        # v4l2_controls_str = f"controls,video_bitrate={target_bitrate_bps},h264_i_frame_period=60"
 
         self.launch_string = (
             f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
-            # Use extra-controls to set the bitrate for v4l2h264enc
-            f"v4l2h264enc extra-controls=\"{v4l2_controls}\" ! "
+            # Use the explicitly named GstStructure for extra-controls
+            f"v4l2h264enc extra-controls=\"{v4l2_controls_str}\" ! "
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
