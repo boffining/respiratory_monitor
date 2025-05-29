@@ -6,14 +6,12 @@ gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GLib
 
 from picamera2 import Picamera2
-# You might need to import libcamera.controls if you were to use symbolic names
-# from libcamera import controls # Not strictly needed for this integer-based approach
+# from libcamera import controls # Not strictly needed if using integer/string values directly
 
 import signal
 import sys
-import socket # To get local IP
+import socket
 
-# Initialize GStreamer
 Gst.init(None)
 
 # --- Picamera2 Configuration ---
@@ -41,24 +39,25 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, **properties):
         super(SensorFactory, self).__init__(**properties)
 
-        # libcamera control values for autofocus:
-        # AfModeEnum: Manual=0, Auto=1, Continuous=2
-        # AfSpeedEnum: Normal=0, Fast=1
-        # AfRangeEnum: Normal=0, Macro=1, Full=2 (Full is often the default and a good choice)
+        # Define autofocus settings based on your gst-inspect output
+        # AfMode: 0=manual, 1=auto, 2=continuous
+        # AfSpeed: 0=normal, 1=fast
+        # AfRange: 0=normal, 1=macro, 2=full
+        
+        # Property names from your gst-inspect output appear to be lowercase with hyphens:
+        # e.g., af-mode, af-speed, af-range
+        
+        # Note: GStreamer property values can sometimes be integers or string representations of the enum
+        # Check gst-inspect output for default values and accepted types if unsure.
+        # For enums, integer values are usually reliable.
+        af_mode_val = 2      # continuous
+        af_speed_val = 0     # normal
+        af_range_val = 2     # full
 
-        af_mode_continuous = 2  # Corresponds to libcamera.controls.AfModeEnum.Continuous
-        af_speed_normal = 0     # Corresponds to libcamera.controls.AfSpeedEnum.Normal
-        af_range_full = 2       # Corresponds to libcamera.controls.AfRangeEnum.Full
-
-        # Construct the extra-controls string for libcamerasrc
-        # Control names are case-sensitive as defined by libcamera.
-        extra_controls_str = f"AfMode={af_mode_continuous},AfSpeed={af_speed_normal},AfRange={af_range_full}"
-        # To only set AfMode to continuous and use defaults for others, you could use:
-        # extra_controls_str = f"AfMode={af_mode_continuous}"
-
+        # Construct the libcamerasrc element with direct properties
+        # Ensure property names match exactly what gst-inspect-1.0 libcamerasrc shows
         self.launch_string = (
-            # Add the extra-controls property to libcamerasrc
-            f"libcamerasrc extra-controls=\"{extra_controls_str}\" ! "
+            f"libcamerasrc af-mode={af_mode_val} af-speed={af_speed_val} af-range={af_range_val} ! "
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
             f"x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! "
@@ -69,6 +68,7 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def do_create_element(self, url):
         return Gst.parse_launch(self.launch_string)
 
+# ... (rest of your GstServer, signal_handler, and main block remains the same) ...
 class GstServer():
     def __init__(self):
         self.server = GstRtspServer.RTSPServer()
