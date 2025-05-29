@@ -63,13 +63,27 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
             f"video/x-raw,format={gst_format},width={width},height={height},framerate={framerate}/1 ! "
             f"videoconvert ! "
             # Use the explicitly named GstStructure for extra-controls
-            f"v4l2h264enc extra-controls=\"{v4l2_controls_str}\" ! "
+            # f"v4l2h264enc extra-controls=\"{v4l2_controls_str}\" ! "
+            f"v4l2h264enc ! "
             f"rtph264pay name=pay0 pt=96"
         )
         print(f"Using GStreamer launch string: {self.launch_string}")
 
     def do_create_element(self, url):
         return Gst.parse_launch(self.launch_string)
+
+
+# Picamera2 instance closed.
+# Camera parameters for GStreamer: 640x360 @30fps, Format: I420, Stride: 640
+# Using GStreamer launch string: libcamerasrc af-mode=2 af-speed=0 af-range=2 ! video/x-raw,format=I420,width=640,height=360,framerate=30/1 ! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency bitrate=1500 ! rtph264pay name=pay0 pt=96
+# RTSP server started on rtsp://192.168.50.173:8554/stream
+
+
+# Picamera2 instance closed.
+# Camera parameters for GStreamer: 1920x1080 @60fps, Format: I420, Stride: 1920
+# Using GStreamer launch string: libcamerasrc af-mode=2 af-speed=0 af-range=2 ! video/x-raw,format=I420,width=1920,height=1080,framerate=60/1 ! videoconvert ! v4l2h264enc extra-controls="controls,video_bitrate=8000000" ! rtph264pay name=pay0 pt=96
+# RTSP server started on rtsp://192.168.50.173:8554/stream
+
 
 # ... (Rest of your GstServer, signal_handler, and main block) ...
 class GstServer():
