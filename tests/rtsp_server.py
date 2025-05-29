@@ -16,9 +16,22 @@ Gst.init(None)
 
 # --- Picamera2 Configuration ---
 picam2 = Picamera2()
-video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
-                                                 lores={"size": (640, 360), "format": "YUV420"},
+# Default resolution and framerate, adjust as needed
+# video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
+                                                #  lores={"size": (640, 360), "format": "YUV420"},
+                                                #  controls={"FrameRate": 30})
+
+# 2K resolution
+video_config = picam2.create_video_configuration(main={"size": (2560, 1440), "format": "RGB888"},
+                                                 lores={"size": (2560, 1440), "format": "YUV420"},
                                                  controls={"FrameRate": 30})
+
+# 2K resolution and 60fps framerate
+# video_config = picam2.create_video_configuration(main={"size": (1280, 720), "format": "RGB888"},
+                                                #  lores={"size": (640, 360), "format": "YUV420"},
+                                                #  controls={"FrameRate": 30})
+
+
 picam2.configure(video_config)
 picam2.start()
 picam2.stop()
